@@ -1,82 +1,130 @@
-import { stdout } from 'process';
-import { camera } from './raspivid';
-import JMuxer from 'jmuxer';
-import { Duplex } from 'stream';
 import { createServer } from 'http';
 import serveStatic from 'serve-static';
 import path from 'path';
+import camera from 'raspberry-pi-camera-native';
 
-class JVideoMuxer extends JMuxer {
-    stream: Duplex | undefined;
-
-    createVideoStream() {
-        let feed = this.feed.bind(this);
-        let destroy = this.destroy.bind(this);
-        this.stream = new Duplex({
-            writableObjectMode: true,
-            read(size) {
-            },
-            write(data, encoding, callback) {
-                try {
-                    feed({video:data});
-                } catch (ex:any) {
-                    console.warn('feed','message' in ex ? ex.message : ex.toString());
-                } finally {
-                    callback();
-                }
-            },
-            final(callback) {
-                //destroy();
-                callback();
-            }
-        });
-        this.stream.on('error',(err) => {
-            console.warn('stream',err?.toString());
-        });
-        return this.stream;
-    }
-
-
-}
-
-const jmux = new JVideoMuxer({
-    node: undefined as unknown as string,
-    debug: true
-});
-
-/*camera({
-    width: 1920,
-    height: 1080,
-    timeout: 0
-}).pipe(jmux.createVideoStream()).pipe(stdout);*/
+const FPS_TRANSITION = 23;
 
 const serve = serveStatic(path.join(__dirname, '../www'));
 
-/*const live = camera({
-    width: 640,
-    height: 480,
-    timeout: 30
-})*/
+let lastFrame: Buffer;
 
-createServer((req,res)=>{
-    console.log("req",req.url);
+const defaults = {
+  width: 1920 / 2,
+  height: 1080 / 2,
+  fps: 25,
+  encoding: 'JPEG',
+  quality: 7//32
+};
+const options = { ...defaults };
+
+createServer(async (req, res) => {
+  try {
     switch (req.url) {
-    case '/live.mp4':
-        res.statusCode = 200;
-        res.setHeader("Content-type", "video/mp4");
-        camera({
-            width: 640,
-            height: 480,
-            timeout: 300
-        }).pipe(jmux.createVideoStream()).pipe(res);
-        break;
-    default:
-        serve(req,res,()=>{
-            res.statusCode = 404;
-            res.write("Not found");
-            res.end();
-        })
-        break;
+      case '/photo':
+        await camera.setConfig({ ...options, quality: 90});
+        camera.once('frame', async (frameData)=>{
+          console.log(req.url,"frame",frameData.length)          
+          await camera.setConfig(options);
+          res.writeHead(200, {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+            Pragma: 'no-cache',
+            Connection: 'close',
+            'Content-Type': 'image/jpeg',
+            'Content-length': frameData.length
+          });
+          res.write(frameData);
+          res.end();
+        });
+        return;
 
+      case '/lastframe':
+        console.log(req.url,"frame",lastFrame.length);
+        res.writeHead(200, {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+          Pragma: 'no-cache',
+          Connection: 'close',
+          'Content-Type': 'image/jpeg',
+          'Content-length': lastFrame.length
+        });
+        res.write(lastFrame);
+        res.end();
+        return;
+
+      case '/preview':
+        res.writeHead(200, {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+          Pragma: 'no-cache',
+          Connection: 'close',
+          'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
+        });
+
+        let frameSent = true;
+        let dropped = 0;
+        let passed = 0;
+        const frameHandler = async (frameData: Buffer) => {
+          lastFrame = frameData;
+          if (!frameSent) {
+            if (++dropped > FPS_TRANSITION) {
+              options.quality = Math.floor(options.quality * 0.9);
+              if (camera.listenerCount('frame') > 0) {
+                passed = 0;
+                dropped = 0;
+                console.log(req.url,"frame-",frameData.length)
+                await camera.setConfig(options);
+              }
+            }
+            return;
+          }
+
+          if (++passed > dropped+FPS_TRANSITION) {
+            options.quality += 1;
+            if (camera.listenerCount('frame') > 0) {
+              passed = 0;
+              dropped = 0;
+              console.log(req.url,"frame+",frameData.length)
+              await camera.setConfig(options);
+            }
+          }
+
+          try {
+            frameSent = false;
+            res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
+            res.write(frameData, () => frameSent = true);
+          }
+          catch (ex) {
+            console.log('Unable to send frame', ex);
+          }
+        }
+
+        if (lastFrame)
+          frameHandler(lastFrame);
+
+        camera.on('frame', frameHandler);
+        if (camera.listenerCount('frame') === 1)
+          await camera.resume();
+
+        req.on('close', async () => {
+          camera.removeListener('frame', frameHandler);
+          if (camera.listenerCount('frame') === 0) {
+            await camera.pause();
+            options.quality = defaults.quality;
+            camera.setConfig(options);
+          }
+        });
+        return;
     }
-}).listen(8000, ()=>{ console.log('Listening')});
+    serve(req, res, () => {
+      res.statusCode = 404;
+      res.write("Not found");
+      res.end();
+    })
+  } catch (ex) {
+    res.statusCode = 500;
+    res.end();
+  }
+}).listen(8000, () => { 
+  camera.start(defaults);
+  camera.pause();
+  console.log('Listening');
+});
