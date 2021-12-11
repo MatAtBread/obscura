@@ -9,21 +9,24 @@ const promises_1 = require("fs/promises");
 const serve_static_1 = __importDefault(require("serve-static"));
 const path_1 = __importDefault(require("path"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
+// Configurable values
 const FPS_TRANSITION = 20;
 const PHOTO_QUALITY = 90;
 const TIMELAPSE_QUALITY = 20;
 const TIMELAPSE_FPS = 10;
-const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
-const port = 8000;
-const serve = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
-let lastFrame;
+const TIMELAPSE_INTERVAL = 60000; // One frame per minute
+const PORT = 8000;
 const defaults = {
     width: 1920,
     height: 1080,
     fps: 20,
     encoding: 'JPEG',
-    quality: 7 //32
+    quality: 7
 };
+// Pre-calculated constants
+const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
+const serve = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
+let lastFrame;
 const options = { ...defaults };
 function sleep(seconds) {
     return new Promise(resolve => setTimeout(resolve, seconds * 1000));
@@ -165,10 +168,10 @@ function sleep(seconds) {
         }
         req.on('close', async () => photo = -1);
     }
-}).listen(port, async () => {
+}).listen(PORT, async () => {
     //await camera.start(defaults);
     //await camera.pause();
-    console.log('Listening on port ' + port);
+    console.log('Listening on port ' + PORT);
 });
 async function takePhoto(quality = PHOTO_QUALITY) {
     if (!pi_camera_native_ts_1.default.running) {
@@ -208,4 +211,4 @@ setInterval(async () => {
     catch (e) {
         console.warn("Failed to take timelapse photo", e);
     }
-}, 10000);
+}, TIMELAPSE_INTERVAL);
