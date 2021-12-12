@@ -1,5 +1,39 @@
 <html>
-    <body>
-        <img src="/preview">
+    <style>
+        #preview {
+            position: absolute;
+            width: calc(100% - 5em);
+            margin-left: 4em;
+            overflow-y: scroll;
+        }
+        #menu {
+            position: fixed;
+            left: 0px;
+            right: 4em;
+        }
+        icon {
+            display: block;
+            width: 1em;
+            font-size: 3em;
+        }
+        a {
+            color: inherit;
+            text-decoration: inherit;
+        }
+    </style>
+    <body>        
+        <div id="menu">
+            <icon id="/lastframe/" onclick="showSource(this.id)">&#10052;</icon>
+            <icon id="/preview/" onclick="showSource(this.id)">&#128250;</icon>
+            <icon id="/timelapse/" onclick="showSource(this.id)">&#9193;</icon>
+            <icon id="/timelapse/?reverse=1" onclick="showSource(this.id)">&#9194;</icon>
+            <a href="/photo/" download="obscura.jpg"><icon>&#128247;</icon></a>
+        </div>
+        <img id="preview" src="/lastframe">
     </body>
+    <script>
+        function showSource(id) {
+            document.getElementById("preview").src = id;
+        }
+    </script>
 </html>
