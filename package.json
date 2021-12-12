@@ -1,21 +1,20 @@
 {
   "name": "pi-obscura",
-  "version": "1.0.0",
-  "description": "Raspbeery Pi timelapse camera",
+  "version": "1.0.1",
+  "description": "Raspberry Pi timelapse camera",
   "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "node ./node_modules/typescript/bin/tsc"
   },
   "author": "MattW",
   "license": "MIT",
   "dependencies": {
     "pi-camera-native-ts": "^0.0.3",
-    "serve-static": "^1.14.1",
-    "typescript": "^4.5.2"
+    "serve-static": "^1.14.1"
   },
   "devDependencies": {
     "@types/node": "^16.11.12",
-    "@types/serve-static": "^1.13.10"
+    "@types/serve-static": "^1.13.10",
+    "typescript": "^4.5.2"
   }
 }
