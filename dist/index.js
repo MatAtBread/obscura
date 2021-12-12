@@ -23,23 +23,40 @@ const defaults = {
     encoding: 'JPEG',
     quality: 7
 };
+// Debug things
+const TRACE_REQUESTS = true;
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
-const serve = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
+const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
+// Current state for timelapse
 let lastFrame;
+let photoCount = 0;
+let nextTimelapse = Date.now();
 const options = { ...defaults };
 function sleep(seconds) {
-    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    if (seconds > 0)
+        return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    return Promise.resolve();
 }
-(0, http_1.createServer)(async (req, res) => {
+let reqID = 1;
+const handleHttpRequest = async (req, res) => {
+    const log = TRACE_REQUESTS ? (msg, ...args) => {
+        console.log(`${msg}\t${req.url} <${res.id}>`, ...args);
+    } : console.log.bind(console);
     try {
         const url = new url_1.URL("http://server" + req.url);
-        const qs = url.searchParams || {};
+        const qs = url.searchParams;
+        if (TRACE_REQUESTS) {
+            res.id = reqID++;
+            log("request");
+            const _end = res.end.bind(res);
+            res.end = () => { log("end"); _end(); };
+            res.once('close', () => log("close"));
+        }
         switch (url.pathname) {
             case '/photo':
             case '/photo/':
-                const frameData = await takePhoto();
-                sendFrame(frameData);
+                sendFrame(await takePhoto());
                 return;
             case '/timelapse':
             case '/timelapse/':
@@ -47,23 +64,27 @@ function sleep(seconds) {
                     fps: Number(qs.get('fps') || TIMELAPSE_FPS),
                     since: Number(qs.get('fps') || 0),
                     speed: Number(qs.get('speed') || 1),
-                    reverse: qs.has('reverse')
+                    reverse: Number(qs.get('reverse')) > 0
                 });
                 return;
             case '/lastframe':
             case '/lastframe/':
+                if (!lastFrame)
+                    throw new Error("Camera not started");
                 sendFrame(lastFrame);
                 return;
             case '/preview':
             case '/preview/':
                 await streamPreview();
                 return;
+            default:
+                wwwStatic(req, res, () => {
+                    res.statusCode = 404;
+                    res.write("Not found");
+                    res.end();
+                });
+                return;
         }
-        serve(req, res, () => {
-            res.statusCode = 404;
-            res.write("Not found");
-            res.end();
-        });
     }
     catch (ex) {
         res.statusCode = 500;
@@ -72,7 +93,7 @@ function sleep(seconds) {
         res.end();
     }
     function sendFrame(frameData) {
-        console.log("\n" + req.url, "frame", frameData.length, PHOTO_QUALITY);
+        log("frame", frameData.length, options.quality);
         res.writeHead(200, {
             'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
             Pragma: 'no-cache',
@@ -93,16 +114,16 @@ function sleep(seconds) {
         let frameSent = true;
         let dropped = 0;
         let passed = 0;
-        const frameHandler = async (frameData) => {
+        const previewFrame = async (frameData) => {
             lastFrame = frameData;
             try {
                 if (!frameSent) {
                     if (++dropped > FPS_TRANSITION) {
-                        options.quality = Math.floor(options.quality * 0.876);
+                        options.quality = Math.max(1, Math.floor(options.quality * 0.8));
                         if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                             passed = 0;
                             dropped = 0;
-                            console.log(req.url, "frame-", frameData.length, options.quality);
+                            log("frame-", frameData.length, options.quality);
                             await pi_camera_native_ts_1.default.setConfig(options);
                         }
                     }
@@ -113,13 +134,13 @@ function sleep(seconds) {
                     if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                         passed = 0;
                         dropped = 0;
-                        console.log("\n" + req.url, "frame+", frameData.length, options.quality);
+                        log("frame+", frameData.length, options.quality);
                         await pi_camera_native_ts_1.default.setConfig(options);
                     }
                 }
             }
             catch (e) {
-                console.warn("\nFailed to change quality", e);
+                console.warn("Failed to change quality", e);
             }
             try {
                 frameSent = false;
@@ -127,24 +148,23 @@ function sleep(seconds) {
                 res.write(frameData, () => frameSent = true);
             }
             catch (ex) {
-                console.warn('\nUnable to send frame', ex);
+                console.warn('Unable to send frame', ex);
             }
         };
         if (lastFrame)
-            frameHandler(lastFrame);
-        pi_camera_native_ts_1.default.on('frame', frameHandler);
+            previewFrame(lastFrame);
+        pi_camera_native_ts_1.default.on('frame', previewFrame);
         if (pi_camera_native_ts_1.default.listenerCount('frame') === 1)
             await pi_camera_native_ts_1.default.start(options); //await camera.resume();
-        req.on('close', async () => {
-            pi_camera_native_ts_1.default.removeListener('frame', frameHandler);
-            sleep(1).then(() => {
-                if (pi_camera_native_ts_1.default.listenerCount('frame') === 0) {
-                    options.quality = defaults.quality;
-                    //await camera.setConfig(options);
-                    //await camera.pause();
-                    return pi_camera_native_ts_1.default.stop();
-                }
-            });
+        req.once('close', async () => {
+            res.end();
+            pi_camera_native_ts_1.default.removeListener('frame', previewFrame);
+            if (pi_camera_native_ts_1.default.listenerCount('frame') === 0) {
+                options.quality = defaults.quality;
+                //await camera.setConfig(options);
+                //await camera.pause();
+                await pi_camera_native_ts_1.default.stop();
+            }
         });
     }
     async function streamTimelapse({ fps, speed, reverse, since }) {
@@ -154,25 +174,28 @@ function sleep(seconds) {
             Connection: 'close',
             'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
         });
-        let nextFrameTime = Date.now();
-        let photo;
-        for (photo = reverse ? photoCount - 1 : 1; photo > 0; photo += speed * (reverse ? -1 : 1)) {
-            nextFrameTime += (1000 / fps);
-            const frameName = timelapseDir + photo + ".jpg";
-            const info = await (0, promises_1.stat)(frameName);
-            res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${info.size}\n\n`);
-            res.write(await (0, promises_1.readFile)(frameName));
-            const now = Date.now();
-            if (now < nextFrameTime)
+        try {
+            let photo;
+            req.once('close', () => photo = -2);
+            let nextFrameTime = Date.now();
+            for (photo = reverse ? photoCount - 1 : 1; photo > 0 && photo < photoCount; photo += speed * (reverse ? -1 : 1)) {
+                nextFrameTime += (1000 / fps);
+                const frameName = timelapseDir + Math.floor(photo) + ".jpg";
+                const info = await (0, promises_1.stat)(frameName);
+                res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${info.size}\n\n`);
+                res.write(await (0, promises_1.readFile)(frameName));
+                const now = Date.now();
                 await sleep((nextFrameTime - now) / 1000);
+            }
         }
-        req.on('close', async () => photo = -1);
+        catch (ex) {
+            console.warn("Timelapse", ex);
+        }
+        finally {
+            res.end();
+        }
     }
-}).listen(PORT, async () => {
-    //await camera.start(defaults);
-    //await camera.pause();
-    console.log('Listening on port ' + PORT);
-});
+};
 async function takePhoto(quality = PHOTO_QUALITY) {
     if (!pi_camera_native_ts_1.default.running) {
         await pi_camera_native_ts_1.default.start({ ...options, quality: quality });
@@ -190,7 +213,6 @@ async function takePhoto(quality = PHOTO_QUALITY) {
         return frameData;
     }
 }
-let photoCount;
 try {
     const saved = require(timelapseDir + "state.json");
     photoCount = saved.photoCount;
@@ -200,15 +222,26 @@ catch (e) {
     console.log("No saved state, starting a new timelapse series");
     photoCount = 1;
 }
-setInterval(async () => {
-    try {
-        const photo = await takePhoto(TIMELAPSE_QUALITY);
-        const frameName = timelapseDir + photoCount + ".jpg";
-        await (0, promises_1.writeFile)(frameName, photo);
-        photoCount += 1;
-        await (0, promises_1.writeFile)(timelapseDir + "state.json", JSON.stringify({ photoCount }));
+async function saveTimelapse() {
+    while (true) {
+        try {
+            nextTimelapse += TIMELAPSE_INTERVAL;
+            const photo = await takePhoto(TIMELAPSE_QUALITY);
+            const frameName = timelapseDir + photoCount + ".jpg";
+            await (0, promises_1.writeFile)(frameName, photo);
+            console.log("Write ", frameName);
+            photoCount += 1;
+            await (0, promises_1.writeFile)(timelapseDir + "state.json", JSON.stringify({ photoCount }));
+        }
+        catch (e) {
+            console.warn("Failed to take timelapse photo " + photoCount, e);
+        }
+        await sleep((nextTimelapse - Date.now()) / 1000);
     }
-    catch (e) {
-        console.warn("Failed to take timelapse photo", e);
-    }
-}, TIMELAPSE_INTERVAL);
+}
+(0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
+    //await camera.start(defaults);
+    //await camera.pause();
+    console.log('Listening on port ' + PORT);
+    saveTimelapse();
+});
