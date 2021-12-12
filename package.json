@@ -1,7 +1,7 @@
 {
-  "name": "obscura",
+  "name": "pi-obscura",
   "version": "1.0.0",
-  "description": "Raspbeery Pi camera",
+  "description": "Raspbeery Pi timelapse camera",
   "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
