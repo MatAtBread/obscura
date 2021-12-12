@@ -10,7 +10,7 @@
   "author": "MattW",
   "license": "MIT",
   "dependencies": {
-    "pi-camera-native-ts": "file:../node-raspberry-pi-camera-native",
+    "pi-camera-native-ts": "^0.0.3",
     "serve-static": "^1.14.1",
     "typescript": "^4.5.2"
   },
