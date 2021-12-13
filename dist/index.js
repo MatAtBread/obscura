@@ -6,15 +6,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const http_1 = require("http");
 const url_1 = require("url");
 const promises_1 = require("fs/promises");
+const fs_1 = require("fs");
 const serve_static_1 = __importDefault(require("serve-static"));
 const path_1 = __importDefault(require("path"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
+const binary_search_1 = __importDefault(require("binary-search"));
 // Configurable values
 const FPS_TRANSITION = 20;
 const PHOTO_QUALITY = 90;
 const TIMELAPSE_QUALITY = 20;
 const TIMELAPSE_FPS = 10;
-const TIMELAPSE_INTERVAL = 60000; // One frame per minute
+const TIMELAPSE_INTERVAL = 60; // One frame per minute (in seconds)
 const PORT = 8000;
 const defaults = {
     width: 1920,
@@ -28,10 +30,9 @@ const TRACE_REQUESTS = true;
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
 const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
-// Current state for timelapse
 let lastFrame;
-let photoCount = 0;
-let nextTimelapse = Date.now();
+let timeIndex = [];
+let nextTimelapse = Math.floor(Date.now() / 1000);
 const options = { ...defaults };
 function sleep(seconds) {
     if (seconds > 0)
@@ -62,9 +63,8 @@ const handleHttpRequest = async (req, res) => {
             case '/timelapse/':
                 await streamTimelapse({
                     fps: Number(qs.get('fps') || TIMELAPSE_FPS),
-                    since: Number(qs.get('fps') || 0),
-                    speed: Number(qs.get('speed') || 1),
-                    reverse: Number(qs.get('reverse')) > 0
+                    since: Number(qs.get('since')) || undefined,
+                    speed: Number(qs.get('speed') || 60)
                 });
                 return;
             case '/lastframe':
@@ -77,14 +77,17 @@ const handleHttpRequest = async (req, res) => {
             case '/preview/':
                 await streamPreview();
                 return;
-            default:
-                wwwStatic(req, res, () => {
-                    res.statusCode = 404;
-                    res.write("Not found");
-                    res.end();
-                });
-                return;
+            case '/':
+                req.url = "/index.html";
+                break;
         }
+        if (!req.url || req.url.indexOf('..') >= 0)
+            throw new Error('Not found');
+        wwwStatic(req, res, () => {
+            res.statusCode = 404;
+            res.write("Not found");
+            res.end();
+        });
     }
     catch (ex) {
         res.statusCode = 500;
@@ -167,7 +170,7 @@ const handleHttpRequest = async (req, res) => {
             }
         });
     }
-    async function streamTimelapse({ fps, speed, reverse, since }) {
+    async function streamTimelapse({ fps, speed, since }) {
         res.writeHead(200, {
             'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
             Pragma: 'no-cache',
@@ -175,17 +178,29 @@ const handleHttpRequest = async (req, res) => {
             'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
         });
         try {
-            let photo;
-            req.once('close', () => photo = -2);
-            let nextFrameTime = Date.now();
-            for (photo = reverse ? photoCount - 1 : 1; photo > 0 && photo < photoCount; photo += speed * (reverse ? -1 : 1)) {
-                nextFrameTime += (1000 / fps);
-                const frameName = timelapseDir + Math.floor(photo) + ".jpg";
-                const info = await (0, promises_1.stat)(frameName);
-                res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${info.size}\n\n`);
-                res.write(await (0, promises_1.readFile)(frameName));
-                const now = Date.now();
-                await sleep((nextFrameTime - now) / 1000);
+            let closed = false;
+            req.once('close', () => closed = true);
+            if (speed < 0) {
+                throw new Error("Not yet implemented");
+            }
+            else {
+                let startIndex = Math.abs((0, binary_search_1.default)(timeIndex, since || 0, (t, n) => t.time - n));
+                while (!closed) {
+                    const now = Date.now();
+                    since = timeIndex[startIndex].time;
+                    const frameName = timeIndex[startIndex].name;
+                    const info = await (0, promises_1.stat)(frameName);
+                    res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${info.size}\n\n`);
+                    res.write(await (0, promises_1.readFile)(frameName));
+                    let delay = 0;
+                    while (delay < 1 / TIMELAPSE_FPS) {
+                        startIndex += 1;
+                        if (!timeIndex[startIndex])
+                            break; // No more images
+                        delay = (timeIndex[startIndex].time - since) / speed;
+                    }
+                    await sleep(delay - (Date.now() - now) / 1000);
+                }
             }
         }
         catch (ex) {
@@ -214,29 +229,45 @@ async function takePhoto(quality = PHOTO_QUALITY) {
     }
 }
 try {
-    const saved = require(timelapseDir + "state.json");
-    photoCount = saved.photoCount;
-    console.log("Timelapse series continue from ", photoCount);
+    const timelapseIndex = (0, fs_1.readFileSync)(timelapseDir + "state.ndjson").toString();
+    timeIndex = timelapseIndex.split(/\n|\n\r|\r\n/).map(r => {
+        try {
+            return JSON.parse(r);
+        }
+        catch (e) {
+            return undefined;
+        }
+    }).filter(o => o && typeof o.time === 'number' && typeof o.name === 'string');
 }
 catch (e) {
-    console.log("No saved state, starting a new timelapse series");
-    photoCount = 1;
+    console.warn("Timelapse index", e);
 }
+console.log("Timelapse index length", timeIndex.length);
 async function saveTimelapse() {
     while (true) {
         try {
             nextTimelapse += TIMELAPSE_INTERVAL;
             const photo = await takePhoto(TIMELAPSE_QUALITY);
-            const frameName = timelapseDir + photoCount + ".jpg";
+            const now = new Date();
+            const path = timelapseDir
+                + String(now.getUTCFullYear()) + '_'
+                + String(now.getMonth() + 1).padStart(2, '0') + '_'
+                + String(now.getUTCDate()).padStart(2, '0');
+            await (0, promises_1.mkdir)(path, { recursive: true });
+            const frameName = path + '/'
+                + String(now.getHours()).padStart(2, '0') + '_'
+                + String(now.getMinutes()).padStart(2, '0') + '_'
+                + String(now.getSeconds()).padStart(2, '0') + '.jpg';
             await (0, promises_1.writeFile)(frameName, photo);
             console.log("Write ", frameName);
-            photoCount += 1;
-            await (0, promises_1.writeFile)(timelapseDir + "state.json", JSON.stringify({ photoCount }));
+            const entry = { time: Math.floor(now.getTime() / 1000), name: frameName };
+            await (0, promises_1.appendFile)(timelapseDir + "state.ndjson", JSON.stringify(entry) + "\n");
+            timeIndex.push(entry);
         }
         catch (e) {
-            console.warn("Failed to take timelapse photo " + photoCount, e);
+            console.warn("Failed to take timelapse photo", e);
         }
-        await sleep((nextTimelapse - Date.now()) / 1000);
+        await sleep(nextTimelapse - Date.now() / 1000);
     }
 }
 (0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
