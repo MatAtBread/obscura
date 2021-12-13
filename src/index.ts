@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, RequestListener, ServerResponse } from 'http';
 import { URL } from 'url';
-import { writeFile, stat, readFile, mkdir, appendFile } from 'fs/promises';
+import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
 import { readFileSync } from 'fs';
 import serveStatic from 'serve-static';
 import path from 'path';
@@ -8,11 +8,12 @@ import camera from 'pi-camera-native-ts';
 import binarySearch from 'binary-search';
 
 // Configurable values
-const FPS_TRANSITION = 20;
-const PHOTO_QUALITY = 90;
-const TIMELAPSE_QUALITY = 20;
-const TIMELAPSE_FPS = 10;
-const TIMELAPSE_INTERVAL = 60; // One frame per minute (in seconds)
+const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
+const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
+const TIMELAPSE_QUALITY = 15;   // Quality of timelapse images
+const TIMELAPSE_FPS = 10;       // Target FPS for timelapse playback
+const TIMELAPSE_SPEED = 600;    // Default: 10 minutes -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
+const TIMELAPSE_INTERVAL = 60;  // Record one frame per minute (value in seconds)
 const PORT = 8000;
 const defaults = {
   width: 1920,
@@ -22,18 +23,16 @@ const defaults = {
   quality: 7
 };
 
-// Debug things
-const TRACE_REQUESTS = true;
-
 // Pre-calculated constants
 const timelapseDir = path.join(__dirname, '../www/timelapse/');
 const wwwStatic = serveStatic(path.join(__dirname, '../www'));
 
-// Current state for timelapse
+// Current state for timelapse & preview
 type TimeStamp = number & { TimeStamp: 'TimeStamp' };
 interface TimeIndex {
   time: TimeStamp,
-  name: string
+  name: string,
+  size: number
 }
 let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
@@ -46,36 +45,27 @@ function sleep(seconds: number) {
   return Promise.resolve();
 }
 
-let reqID = 1;
-const handleHttpRequest: RequestListener = async (req: IncomingMessage, res: ServerResponse & { id?: number }) => {
-  const log = TRACE_REQUESTS ? (msg: string, ...args: any[]) => {
-    console.log(`${msg}\t${req.url} <${res.id}>`, ...args);
-  } : console.log.bind(console);
+function write(res: ServerResponse, data: string | Buffer) {
+  return new Promise(resolve => res.write(data,resolve));
+}
 
+async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
     const url = new URL("http://server" + req.url);
     const qs = url.searchParams;
 
-    if (TRACE_REQUESTS) {
-      res.id = reqID++;
-      log("request");
-      const _end = res.end.bind(res);
-      res.end = () => { log("end"); _end() };
-      res.once('close', () => log("close"));
-    }
-
     switch (url.pathname) {
       case '/photo':
       case '/photo/':
-        sendFrame(await takePhoto());
+        sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));
         return;
 
       case '/timelapse':
       case '/timelapse/':
-        await streamTimelapse({
+        await streamTimelapse(req, res, {
           fps: Number(qs.get('fps') || TIMELAPSE_FPS),
           since: Number(qs.get('since')) as TimeStamp || undefined,
-          speed: Number(qs.get('speed') || 60)
+          speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
         });
         return;
 
@@ -83,12 +73,12 @@ const handleHttpRequest: RequestListener = async (req: IncomingMessage, res: Ser
       case '/lastframe/':
         if (!lastFrame)
           throw new Error("Camera not started");
-        sendFrame(lastFrame);
+        sendFrame(res, lastFrame);
         return;
 
       case '/preview':
       case '/preview/':
-        await streamPreview();
+        await streamPreview(req, res);
         return;
 
       case '/':
@@ -110,126 +100,148 @@ const handleHttpRequest: RequestListener = async (req: IncomingMessage, res: Ser
     res.end();
   }
 
-  function sendFrame(frameData: Buffer) {
-    log("frame", frameData.length, options.quality);
-    res.writeHead(200, {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
-      Pragma: 'no-cache',
-      Connection: 'close',
-      'Content-Type': 'image/jpeg',
-      'Content-length': frameData.length
-    });
-    res.write(frameData);
-    res.end();
-  }
 
-  async function streamPreview() {
-    res.writeHead(200, {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
-      Pragma: 'no-cache',
-      Connection: 'close',
-      'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
-    });
+}
 
-    let frameSent = true;
-    let dropped = 0;
-    let passed = 0;
-    const previewFrame = async (frameData: Buffer) => {
-      lastFrame = frameData;
-      try {
-        if (!frameSent) {
-          if (++dropped > FPS_TRANSITION) {
-            options.quality = Math.max(1, Math.floor(options.quality * 0.8));
-            if (camera.listenerCount('frame') > 0) {
-              passed = 0;
-              dropped = 0;
-              log("frame-", frameData.length, options.quality);
-              await camera.setConfig(options);
-            }
-          }
-          return;
-        }
+function sendFrame(res:ServerResponse, frameData: Buffer) {
+  res.writeHead(200, {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+    Pragma: 'no-cache',
+    Connection: 'close',
+    'Content-Type': 'image/jpeg',
+    'Content-length': frameData.length
+  });
+  res.write(frameData);
+  res.end();
+}
 
-        if (++passed > dropped + FPS_TRANSITION) {
-          options.quality += 1;
+async function streamPreview(req: IncomingMessage, res:ServerResponse) {
+  res.writeHead(200, {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+    Pragma: 'no-cache',
+    Connection: 'close',
+    'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
+  });
+
+  let frameSent = true;
+  let dropped = 0;
+  let passed = 0;
+  const previewFrame = async (frameData: Buffer) => {
+    lastFrame = frameData;
+    try {
+      if (!frameSent) {
+        if (++dropped > FPS_TRANSITION) {
+          options.quality = Math.max(2, Math.floor(options.quality * 0.8));
           if (camera.listenerCount('frame') > 0) {
             passed = 0;
             dropped = 0;
-            log("frame+", frameData.length, options.quality);
+            console.log("frame-", frameData.length, options.quality);
             await camera.setConfig(options);
           }
         }
-      } catch (e) {
-        console.warn("Failed to change quality", e);
+        return;
       }
 
-      try {
-        frameSent = false;
-        res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
-        res.write(frameData, () => frameSent = true);
-      }
-      catch (ex) {
-        console.warn('Unable to send frame', ex);
-      }
-    };
-
-    if (lastFrame)
-      previewFrame(lastFrame);
-
-    camera.on('frame', previewFrame);
-    if (camera.listenerCount('frame') === 1)
-      await camera.start(options); //await camera.resume();
-
-    req.once('close', async () => {
-      res.end();
-      camera.removeListener('frame', previewFrame);
-      if (camera.listenerCount('frame') === 0) {
-        options.quality = defaults.quality;
-        //await camera.setConfig(options);
-        //await camera.pause();
-        await camera.stop();
-      }
-    });
-  }
-
-  async function streamTimelapse({ fps, speed, since }: { fps: number; speed: number; since?: TimeStamp }) {
-    res.writeHead(200, {
-      'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
-      Pragma: 'no-cache',
-      Connection: 'close',
-      'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
-    });
-
-    try {
-      let closed = false;
-      req.once('close', () => closed = true);
-      if (speed < 0) {
-        throw new Error("Not yet implemented");
-      } else {
-        let startIndex = Math.abs(binarySearch(timeIndex, since || 0 as TimeStamp, (t, n) => t.time - n));
-        while (!closed) {
-          const now = Date.now();
-          since = timeIndex[startIndex].time;
-          const frameName = timeIndex[startIndex].name;
-          const info = await stat(frameName);
-          res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${info.size}\n\n`);
-          res.write(await readFile(frameName));
-
-          let delay = 0;
-          while (delay < 1 / TIMELAPSE_FPS) {
-            startIndex += 1;
-            if (!timeIndex[startIndex])
-              break; // No more images
-            delay = (timeIndex[startIndex].time - since)/speed;
-          }
-          await sleep(delay - (Date.now() - now)/1000);
+      if (++passed > dropped + FPS_TRANSITION) {
+        options.quality += 1;
+        if (camera.listenerCount('frame') > 0) {
+          passed = 0;
+          dropped = 0;
+          console.log("frame+", frameData.length, options.quality);
+          await camera.setConfig(options);
         }
       }
-    } catch (ex) {
-      console.warn("Timelapse", ex);
-    } finally {
-      res.end();
+    } catch (e) {
+      console.warn("Failed to change quality", e);
     }
+
+    try {
+      frameSent = false;
+      res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
+      await write(res, frameData);
+      frameSent = true
+    }
+    catch (ex) {
+      console.warn('Unable to send frame', ex);
+    } finally {
+      
+    }
+  };
+
+  if (lastFrame)
+    previewFrame(lastFrame);
+
+  camera.on('frame', previewFrame);
+  if (camera.listenerCount('frame') === 1)
+    await camera.start(options); //await camera.resume();
+
+  req.once('close', async () => {
+    res.end();
+    camera.removeListener('frame', previewFrame);
+    if (camera.listenerCount('frame') === 0) {
+      if (options.quality < defaults.quality)
+        options.quality = defaults.quality;
+      //await camera.setConfig(options);
+      //await camera.pause();
+      await camera.stop();
+    }
+  });
+}
+
+async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, speed, since }: { fps: number; speed: number; since?: TimeStamp }) {
+  res.writeHead(200, {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
+    Pragma: 'no-cache',
+    Connection: 'close',
+    'Content-Type': 'multipart/x-mixed-replace; boundary=--myboundary'
+  });
+
+  try {
+    let closed = false;
+    req.once('close', () => closed = true);
+    if (speed < 0) {
+      throw new Error("Not yet implemented");
+    } else {
+      let frameIndex = binarySearch(timeIndex, since || 0 as TimeStamp, (t, n) => t.time - n);
+      if (frameIndex < 0)
+        frameIndex = ~frameIndex;
+      while (!closed) {
+        let time = (Date.now() / 1000);
+  
+        // Send a frame to the client
+        const frame = timeIndex[frameIndex];
+        res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
+        await write(res, await readFile(timelapseDir + frame.name));
+
+        // Having written the first frame, we'll want to send another one in T+1/fps in real time.
+        // which is T+speed/fps in timelapse time. 
+        let nextFrameIndex = binarySearch(timeIndex, frame.time + speed/fps || 0 as TimeStamp, (t, n) => t.time - n);
+        if (nextFrameIndex < 0)
+          nextFrameIndex = ~nextFrameIndex;        
+        if (nextFrameIndex === frameIndex)
+          nextFrameIndex += 1;
+
+        // Check we've not run out of frames
+        if (nextFrameIndex >= timeIndex.length)
+          return sendFrame(res, await readFile(timelapseDir + timeIndex[timeIndex.length-1].name));
+
+        // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
+        const deviation = (Date.now()/1000 - time);
+        let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
+        while (d < deviation) {
+          nextFrameIndex += 1;
+          if (nextFrameIndex >= timeIndex.length)
+            return sendFrame(res, await readFile(timelapseDir + timeIndex[timeIndex.length-1].name));
+          d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
+        }
+        await sleep(d - deviation);
+        frameIndex = nextFrameIndex;
+      }
+    }
+  } catch (ex) {
+    console.warn("Timelapse", ex);
+  } finally {
+    res.end();
   }
 }
 
@@ -250,40 +262,43 @@ async function takePhoto(quality = PHOTO_QUALITY): Promise<Buffer> {
   }
 }
 
-
-try {
-  const timelapseIndex = readFileSync(timelapseDir + "state.ndjson").toString();
-  timeIndex = timelapseIndex.split(/\n|\n\r|\r\n/).map(r => {
-    try {
-      return JSON.parse(r);
-    } catch (e) {
-      return undefined
-    }
-  }).filter(o => o && typeof o.time === 'number' && typeof o.name === 'string');
-} catch (e) {
-  console.warn("Timelapse index", e);
-}
-console.log("Timelapse index length", timeIndex.length);
-
 async function saveTimelapse() {
+  // init timelapse index
+  try {
+    const timelapseIndex = readFileSync(timelapseDir + "state.ndjson").toString();
+    timeIndex = timelapseIndex.split(/\n|\n\r|\r\n/).map(r => {
+      try {
+        return JSON.parse(r);
+      } catch (e) {
+        return undefined
+      }
+    }).filter(o => o && typeof o.time === 'number' && typeof o.name === 'string');
+  } catch (e) {
+    console.warn("Timelapse index", e);
+  }
+  console.log("Timelapse index length", timeIndex.length);
+
   while (true) {
     try {
       nextTimelapse += TIMELAPSE_INTERVAL;
-      const photo = await takePhoto(TIMELAPSE_QUALITY);
+      const photo = lastFrame = await takePhoto(TIMELAPSE_QUALITY);
       const now = new Date();
-      const path = timelapseDir
-        + String(now.getUTCFullYear()) + '_'
+      const path = String(now.getUTCFullYear()) + '_'
         + String(now.getMonth() + 1).padStart(2, '0') + '_'
         + String(now.getUTCDate()).padStart(2, '0');
-      await mkdir(path, { recursive: true });
+      await mkdir(timelapseDir + path, { recursive: true });
       const frameName = path + '/'
         + String(now.getHours()).padStart(2, '0') + '_'
         + String(now.getMinutes()).padStart(2, '0') + '_'
         + String(now.getSeconds()).padStart(2, '0') + '.jpg';
 
-      await writeFile(frameName, photo);
-      console.log("Write ", frameName);
-      const entry: TimeIndex = { time: Math.floor(now.getTime() / 1000) as TimeStamp, name: frameName };
+      await writeFile(timelapseDir + frameName, photo);
+      const entry: TimeIndex = { 
+        name: frameName, 
+        size: photo.length,
+        time: Math.floor(now.getTime() / 1000) as TimeStamp
+      };
+
       await appendFile(timelapseDir + "state.ndjson", JSON.stringify(entry) + "\n");
       timeIndex.push(entry)
     } catch (e) {
@@ -294,8 +309,6 @@ async function saveTimelapse() {
 }
 
 createServer(handleHttpRequest).listen(PORT, async () => {
-  //await camera.start(defaults);
-  //await camera.pause();
   console.log('Listening on port ' + PORT);
   saveTimelapse();
 });
