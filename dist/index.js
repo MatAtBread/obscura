@@ -49,10 +49,18 @@ async function handleHttpRequest(req, res) {
         switch (url.pathname) {
             case '/deploy':
             case '/deploy/':
-                res.write("ok");
-                res.end();
                 console.log("Re-deploying");
-                const p = (0, child_process_1.exec)('npm run deploy');
+                const p = (0, child_process_1.exec)('npm run deploy', async (error, stdout, stderr) => {
+                    await write(res, stdout + '\n\n');
+                    if (error) {
+                        await write(res, error.message + '\n\n' + stderr);
+                        res.end();
+                    }
+                    else {
+                        res.end();
+                        (0, child_process_1.exec)('pm2 restart obscura');
+                    }
+                });
                 p.stdout?.pipe(process.stdout);
                 p.stderr?.pipe(process.stderr);
                 return;
@@ -64,7 +72,7 @@ async function handleHttpRequest(req, res) {
             case '/timelapse/':
                 await streamTimelapse(req, res, {
                     fps: Number(qs.get('fps') || TIMELAPSE_FPS),
-                    since: Number(qs.get('since')) || undefined,
+                    since: qs.has('since') ? new Date(qs.get('since') || 0) : undefined,
                     speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
                 });
                 return;
@@ -189,7 +197,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
             throw new Error("Not yet implemented");
         }
         else {
-            let frameIndex = (0, binary_search_1.default)(timeIndex, since || 0, (t, n) => t.time - n);
+            let frameIndex = (0, binary_search_1.default)(timeIndex, (since ? since.getTime() : 0), (t, n) => t.time - n);
             if (frameIndex < 0)
                 frameIndex = ~frameIndex;
             while (!closed) {
@@ -292,6 +300,6 @@ async function saveTimelapse() {
     }
 }
 (0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
-    console.log('Listening on port ' + PORT);
+    console.log(`Verison ${require('../package.json').version}: listening on port ${PORT}`);
     saveTimelapse();
 });

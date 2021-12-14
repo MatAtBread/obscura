@@ -58,10 +58,17 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     switch (url.pathname) {
       case '/deploy':
       case '/deploy/':
-        res.write("ok");
-        res.end();
         console.log("Re-deploying")
-        const p = exec('npm run deploy');
+        const p = exec('npm run deploy', async (error,stdout,stderr) => {
+          await write(res, stdout+'\n\n');
+          if (error) {
+            await write(res, error.message+'\n\n'+stderr);
+            res.end();
+          } else {
+            res.end();
+            exec('pm2 restart obscura');
+          }
+        });
         p.stdout?.pipe(process.stdout);
         p.stderr?.pipe(process.stderr);
         return;
@@ -75,7 +82,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse/':
         await streamTimelapse(req, res, {
           fps: Number(qs.get('fps') || TIMELAPSE_FPS),
-          since: Number(qs.get('since')) as TimeStamp || undefined,
+          since: qs.has('since') ? new Date(qs.get('since') || 0) : undefined,
           speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
         });
         return;
@@ -199,7 +206,7 @@ async function streamPreview(req: IncomingMessage, res:ServerResponse) {
   });
 }
 
-async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, speed, since }: { fps: number; speed: number; since?: TimeStamp }) {
+async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, speed, since }: { fps: number; speed: number; since?: Date }) {
   res.writeHead(200, {
     'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
     Pragma: 'no-cache',
@@ -213,7 +220,7 @@ async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, 
     if (speed < 0) {
       throw new Error("Not yet implemented");
     } else {
-      let frameIndex = binarySearch(timeIndex, since || 0 as TimeStamp, (t, n) => t.time - n);
+      let frameIndex = binarySearch(timeIndex, (since ? since.getTime() : 0) as TimeStamp, (t, n) => t.time - n);
       if (frameIndex < 0)
         frameIndex = ~frameIndex;
       while (!closed) {
@@ -320,6 +327,6 @@ async function saveTimelapse() {
 }
 
 createServer(handleHttpRequest).listen(PORT, async () => {
-  console.log('Listening on port ' + PORT);
+  console.log(`Verison ${require('../package.json').version}: listening on port ${PORT}`);
   saveTimelapse();
 });
