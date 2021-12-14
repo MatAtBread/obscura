@@ -14,10 +14,6 @@ import { redeploy, createStateFromFileSystem } from './admin';
 // Configurable values
 const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
-const TIMELAPSE_QUALITY = 15;   // Quality of timelapse images
-const TIMELAPSE_FPS = 10;       // Target FPS for timelapse playback
-const TIMELAPSE_SPEED = 600;    // Default: 10 minutes -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
-const TIMELAPSE_INTERVAL = 60;  // Record one frame per minute (value in seconds)
 const PORT = 8000;
 const defaults = {
   width: 1920,
@@ -27,6 +23,13 @@ const defaults = {
   quality: 7
 };
 
+const timelapse = {
+  quality: 15,         // Quality of timelapse images
+  playbackFps: 15,     // Target FPS for timelapse playback
+  speed: 3600,         // Default: 1 hour -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
+  intervalSeconds: 300 // Record one frame every 5 minutes (value in seconds)  
+}
+
 // Pre-calculated constants
 const timelapseDir = path.join(__dirname, '../www/timelapse/');
 const wwwStatic = serveStatic(path.join(__dirname, '../www'));
@@ -34,7 +37,7 @@ const wwwStatic = serveStatic(path.join(__dirname, '../www'));
 let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
 let nextTimelapse = Math.floor(Date.now() / 1000);
-const options = { ...defaults };
+const preview = { ...defaults };
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -42,6 +45,19 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     const qs = url.searchParams;
 
     switch (url.pathname) {
+      case '/info':
+      case '/info/':
+        res.setHeader("Content-type", "application/json");
+        res.write(JSON.stringify({
+          totalFrameSize: timeIndex.reduce((a,b) => a + b.size, 0),
+          countFrames: timeIndex.length,
+          startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time),
+          preview,
+          timelapse
+        }));
+        res.end();
+        return;
+
       case '/admin/redeploy':
       case '/admin/redeploy/':
         redeploy(res);
@@ -58,7 +74,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         res.end();
         return;
   
-          case '/photo':
+      case '/photo':
       case '/photo/':
         sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));
         return;
@@ -66,9 +82,9 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse':
       case '/timelapse/':
         await streamTimelapse(req, res, {
-          fps: Number(qs.get('fps') || TIMELAPSE_FPS),
+          fps: Number(qs.get('fps') || timelapse.playbackFps),
           since: qs.has('since') ? new Date(qs.get('since') || 0) : undefined,
-          speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
+          speed: Number(qs.get('speed') || timelapse.speed)
         });
         return;
 
@@ -133,24 +149,24 @@ async function streamPreview(req: IncomingMessage, res:ServerResponse) {
     try {
       if (!frameSent) {
         if (++dropped > FPS_TRANSITION) {
-          options.quality = Math.max(2, Math.floor(options.quality * 0.8));
+          preview.quality = Math.max(2, Math.floor(preview.quality * 0.8));
           if (camera.listenerCount('frame') > 0) {
             passed = 0;
             dropped = 0;
-            console.log("frame-", frameData.length, options.quality);
-            await camera.setConfig(options);
+            console.log("frame-", frameData.length, preview.quality);
+            await camera.setConfig(preview);
           }
         }
         return;
       }
 
       if (++passed > dropped + FPS_TRANSITION) {
-        options.quality += 1;
+        preview.quality += 1;
         if (camera.listenerCount('frame') > 0) {
           passed = 0;
           dropped = 0;
-          console.log("frame+", frameData.length, options.quality);
-          await camera.setConfig(options);
+          console.log("frame+", frameData.length, preview.quality);
+          await camera.setConfig(preview);
         }
       }
     } catch (e) {
@@ -175,14 +191,14 @@ async function streamPreview(req: IncomingMessage, res:ServerResponse) {
 
   camera.on('frame', previewFrame);
   if (camera.listenerCount('frame') === 1)
-    await camera.start(options); //await camera.resume();
+    await camera.start(preview); //await camera.resume();
 
   req.once('close', async () => {
     res.end();
     camera.removeListener('frame', previewFrame);
     if (camera.listenerCount('frame') === 0) {
-      if (options.quality < defaults.quality)
-        options.quality = defaults.quality;
+      if (preview.quality < defaults.quality)
+        preview.quality = defaults.quality;
       //await camera.setConfig(options);
       //await camera.pause();
       await camera.stop();
@@ -249,17 +265,17 @@ async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, 
 
 async function takePhoto(quality = PHOTO_QUALITY): Promise<Buffer> {
   if (!camera.running) {
-    await camera.start({ ...options, quality: quality });
+    await camera.start({ ...preview, quality: quality });
     await sleep(1); // Wait for camaera to do AWB and Exposure control
     const frameData = await camera.nextFrame();
     await sleep(0.1);
     await camera.stop();
     return frameData;
   } else {
-    await camera.setConfig({ ...options, quality: quality });
+    await camera.setConfig({ ...preview, quality: quality });
     await camera.nextFrame();
     const frameData = await camera.nextFrame();
-    await camera.setConfig(options);
+    await camera.setConfig(preview);
     return frameData;
   }
 }
@@ -282,8 +298,8 @@ async function saveTimelapse() {
 
   while (true) {
     try {
-      nextTimelapse += TIMELAPSE_INTERVAL;
-      const photo = lastFrame = await takePhoto(TIMELAPSE_QUALITY);
+      nextTimelapse += timelapse.intervalSeconds;
+      const photo = lastFrame = await takePhoto(timelapse.quality);
       const now = new Date();
       const path = String(now.getUTCFullYear()) + '_'
         + String(now.getMonth() + 1).padStart(2, '0') + '_'

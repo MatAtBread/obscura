@@ -16,10 +16,6 @@ const admin_1 = require("./admin");
 // Configurable values
 const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
-const TIMELAPSE_QUALITY = 15; // Quality of timelapse images
-const TIMELAPSE_FPS = 10; // Target FPS for timelapse playback
-const TIMELAPSE_SPEED = 600; // Default: 10 minutes -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
-const TIMELAPSE_INTERVAL = 60; // Record one frame per minute (value in seconds)
 const PORT = 8000;
 const defaults = {
     width: 1920,
@@ -28,18 +24,36 @@ const defaults = {
     encoding: 'JPEG',
     quality: 7
 };
+const timelapse = {
+    quality: 15,
+    playbackFps: 15,
+    speed: 3600,
+    intervalSeconds: 300 // Record one frame every 5 minutes (value in seconds)  
+};
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
 const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
 let lastFrame;
 let timeIndex = [];
 let nextTimelapse = Math.floor(Date.now() / 1000);
-const options = { ...defaults };
+const preview = { ...defaults };
 async function handleHttpRequest(req, res) {
     try {
         const url = new url_1.URL("http://server" + req.url);
         const qs = url.searchParams;
         switch (url.pathname) {
+            case '/info':
+            case '/info/':
+                res.setHeader("Content-type", "application/json");
+                res.write(JSON.stringify({
+                    totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
+                    countFrames: timeIndex.length,
+                    startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time),
+                    preview,
+                    timelapse
+                }));
+                res.end();
+                return;
             case '/admin/redeploy':
             case '/admin/redeploy/':
                 (0, admin_1.redeploy)(res);
@@ -61,9 +75,9 @@ async function handleHttpRequest(req, res) {
             case '/timelapse':
             case '/timelapse/':
                 await streamTimelapse(req, res, {
-                    fps: Number(qs.get('fps') || TIMELAPSE_FPS),
+                    fps: Number(qs.get('fps') || timelapse.playbackFps),
                     since: qs.has('since') ? new Date(qs.get('since') || 0) : undefined,
-                    speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
+                    speed: Number(qs.get('speed') || timelapse.speed)
                 });
                 return;
             case '/lastframe':
@@ -120,23 +134,23 @@ async function streamPreview(req, res) {
         try {
             if (!frameSent) {
                 if (++dropped > FPS_TRANSITION) {
-                    options.quality = Math.max(2, Math.floor(options.quality * 0.8));
+                    preview.quality = Math.max(2, Math.floor(preview.quality * 0.8));
                     if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                         passed = 0;
                         dropped = 0;
-                        console.log("frame-", frameData.length, options.quality);
-                        await pi_camera_native_ts_1.default.setConfig(options);
+                        console.log("frame-", frameData.length, preview.quality);
+                        await pi_camera_native_ts_1.default.setConfig(preview);
                     }
                 }
                 return;
             }
             if (++passed > dropped + FPS_TRANSITION) {
-                options.quality += 1;
+                preview.quality += 1;
                 if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                     passed = 0;
                     dropped = 0;
-                    console.log("frame+", frameData.length, options.quality);
-                    await pi_camera_native_ts_1.default.setConfig(options);
+                    console.log("frame+", frameData.length, preview.quality);
+                    await pi_camera_native_ts_1.default.setConfig(preview);
                 }
             }
         }
@@ -159,13 +173,13 @@ async function streamPreview(req, res) {
         previewFrame(lastFrame);
     pi_camera_native_ts_1.default.on('frame', previewFrame);
     if (pi_camera_native_ts_1.default.listenerCount('frame') === 1)
-        await pi_camera_native_ts_1.default.start(options); //await camera.resume();
+        await pi_camera_native_ts_1.default.start(preview); //await camera.resume();
     req.once('close', async () => {
         res.end();
         pi_camera_native_ts_1.default.removeListener('frame', previewFrame);
         if (pi_camera_native_ts_1.default.listenerCount('frame') === 0) {
-            if (options.quality < defaults.quality)
-                options.quality = defaults.quality;
+            if (preview.quality < defaults.quality)
+                preview.quality = defaults.quality;
             //await camera.setConfig(options);
             //await camera.pause();
             await pi_camera_native_ts_1.default.stop();
@@ -228,7 +242,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
 }
 async function takePhoto(quality = PHOTO_QUALITY) {
     if (!pi_camera_native_ts_1.default.running) {
-        await pi_camera_native_ts_1.default.start({ ...options, quality: quality });
+        await pi_camera_native_ts_1.default.start({ ...preview, quality: quality });
         await (0, helpers_1.sleep)(1); // Wait for camaera to do AWB and Exposure control
         const frameData = await pi_camera_native_ts_1.default.nextFrame();
         await (0, helpers_1.sleep)(0.1);
@@ -236,10 +250,10 @@ async function takePhoto(quality = PHOTO_QUALITY) {
         return frameData;
     }
     else {
-        await pi_camera_native_ts_1.default.setConfig({ ...options, quality: quality });
+        await pi_camera_native_ts_1.default.setConfig({ ...preview, quality: quality });
         await pi_camera_native_ts_1.default.nextFrame();
         const frameData = await pi_camera_native_ts_1.default.nextFrame();
-        await pi_camera_native_ts_1.default.setConfig(options);
+        await pi_camera_native_ts_1.default.setConfig(preview);
         return frameData;
     }
 }
@@ -262,8 +276,8 @@ async function saveTimelapse() {
     console.log("Timelapse index length", timeIndex.length);
     while (true) {
         try {
-            nextTimelapse += TIMELAPSE_INTERVAL;
-            const photo = lastFrame = await takePhoto(TIMELAPSE_QUALITY);
+            nextTimelapse += timelapse.intervalSeconds;
+            const photo = lastFrame = await takePhoto(timelapse.quality);
             const now = new Date();
             const path = String(now.getUTCFullYear()) + '_'
                 + String(now.getMonth() + 1).padStart(2, '0') + '_'
