@@ -6,7 +6,9 @@ import serveStatic from 'serve-static';
 import path from 'path';
 import camera from 'pi-camera-native-ts';
 import binarySearch from 'binary-search';
-import { exec } from 'child_process';
+
+import { TimeIndex, TimeStamp } from './types';
+import { sleep, write } from './helpers';
 
 // Configurable values
 const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
@@ -28,27 +30,10 @@ const defaults = {
 const timelapseDir = path.join(__dirname, '../www/timelapse/');
 const wwwStatic = serveStatic(path.join(__dirname, '../www'));
 
-// Current state for timelapse & preview
-type TimeStamp = number & { TimeStamp: 'TimeStamp' };
-interface TimeIndex {
-  time: TimeStamp,
-  name: string,
-  size: number
-}
 let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
 let nextTimelapse = Math.floor(Date.now() / 1000);
 const options = { ...defaults };
-
-function sleep(seconds: number) {
-  if (seconds > 0)
-    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-  return Promise.resolve();
-}
-
-function write(res: ServerResponse, data: string | Buffer) {
-  return new Promise(resolve => res.write(data,resolve));
-}
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -56,24 +41,17 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     const qs = url.searchParams;
 
     switch (url.pathname) {
-      case '/deploy':
-      case '/deploy/':
-        console.log("Re-deploying")
-        const p = exec('npm run deploy', async (error,stdout,stderr) => {
-          await write(res, stdout+'\n\n');
-          if (error) {
-            await write(res, error.message+'\n\n'+stderr);
-            res.end();
-          } else {
-            res.end();
-            exec('pm2 restart obscura');
-          }
-        });
-        p.stdout?.pipe(process.stdout);
-        p.stderr?.pipe(process.stderr);
+      case '/admin/redeploy':
+      case '/admin/redeploy/':
+        redeploy(res);
         return;
 
-      case '/photo':
+      case '/admin/build-state':
+      case '/admin/build-state/':
+        const newState = await createStateFromFileSystem(timelapseDir);
+        return;
+  
+          case '/photo':
       case '/photo/':
         sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));
         return;
