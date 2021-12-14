@@ -1,4 +1,4 @@
-import { createServer, IncomingMessage, RequestListener, ServerResponse } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
 import { readFileSync } from 'fs';
@@ -6,6 +6,7 @@ import serveStatic from 'serve-static';
 import path from 'path';
 import camera from 'pi-camera-native-ts';
 import binarySearch from 'binary-search';
+import { exec } from 'child_process';
 
 // Configurable values
 const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
@@ -55,6 +56,16 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     const qs = url.searchParams;
 
     switch (url.pathname) {
+      case '/deploy':
+      case '/deploy/':
+        res.write("ok");
+        res.end();
+        console.log("Re-deploying")
+        const p = exec('npm run deploy');
+        p.stdout?.pipe(process.stdout);
+        p.stderr?.pipe(process.stderr);
+        return;
+
       case '/photo':
       case '/photo/':
         sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));

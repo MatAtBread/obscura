@@ -4,7 +4,8 @@
   "description": "Raspberry Pi timelapse camera",
   "main": "dist/index.js",
   "scripts": {
-    "build": "node ./node_modules/typescript/bin/tsc"
+    "build": "node ./node_modules/typescript/bin/tsc",
+    "deploy": "git pull && npm i && pm2 restart obscura"
   },
   "author": "MattW",
   "license": "MIT",

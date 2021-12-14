@@ -11,6 +11,7 @@ const serve_static_1 = __importDefault(require("serve-static"));
 const path_1 = __importDefault(require("path"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
+const child_process_1 = require("child_process");
 // Configurable values
 const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
@@ -46,6 +47,15 @@ async function handleHttpRequest(req, res) {
         const url = new url_1.URL("http://server" + req.url);
         const qs = url.searchParams;
         switch (url.pathname) {
+            case '/deploy':
+            case '/deploy/':
+                res.write("ok");
+                res.end();
+                console.log("Re-deploying");
+                const p = (0, child_process_1.exec)('npm run deploy');
+                p.stdout?.pipe(process.stdout);
+                p.stderr?.pipe(process.stderr);
+                return;
             case '/photo':
             case '/photo/':
                 sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));
