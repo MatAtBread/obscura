@@ -2,8 +2,9 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
 import { readFileSync, writeFileSync } from 'fs';
-import serveStatic from 'serve-static';
 import path from 'path';
+
+import serveStatic from 'serve-static';
 import camera from 'pi-camera-native-ts';
 import binarySearch from 'binary-search';
 
@@ -14,17 +15,19 @@ import { redeploy, createStateFromFileSystem } from './admin';
 // Configurable values
 const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
+const DEFAULT_QUALITY = 12;
 const PORT = 8000;
+
 const defaults = {
   width: 1920,
   height: 1080,
   fps: 20,
   encoding: 'JPEG',
-  quality: 7
+  quality: DEFAULT_QUALITY
 };
 
 const timelapse = {
-  quality: 15,         // Quality of timelapse images
+  quality: DEFAULT_QUALITY,  // Quality of timelapse images
   playbackFps: 15,     // Target FPS for timelapse playback
   speed: 3600,         // Default: 1 hour -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
   intervalSeconds: 300 // Record one frame every 5 minutes (value in seconds)  
@@ -34,10 +37,10 @@ const timelapse = {
 const timelapseDir = path.join(__dirname, '../www/timelapse/');
 const wwwStatic = serveStatic(path.join(__dirname, '../www'));
 
+// Other singleton variables
+const preview = { ...defaults };
 let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
-let nextTimelapse = Math.floor(Date.now() / 1000);
-const preview = { ...defaults };
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -117,8 +120,6 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       res.write('message' in ex ? ex.message : ex.toString());
     res.end();
   }
-
-
 }
 
 function sendFrame(res:ServerResponse, frameData: Buffer) {
@@ -240,18 +241,25 @@ async function streamTimelapse(req: IncomingMessage, res:ServerResponse, { fps, 
           nextFrameIndex += 1;
 
         // Check we've not run out of frames
-        if (nextFrameIndex >= timeIndex.length)
-          return sendFrame(res, await readFile(timelapseDir + timeIndex[timeIndex.length-1].name));
+        if (nextFrameIndex >= timeIndex.length) {
+          const finalFrame = await readFile(timelapseDir + timeIndex[timeIndex.length-1].name);
+          res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+          return res.write(finalFrame);
+        }
 
         // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
         const deviation = (Date.now()/1000 - time);
         let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
         while (d < deviation) {
           nextFrameIndex += 1;
-          if (nextFrameIndex >= timeIndex.length)
-            return sendFrame(res, await readFile(timelapseDir + timeIndex[timeIndex.length-1].name));
+          if (nextFrameIndex >= timeIndex.length) {
+            const finalFrame = await readFile(timelapseDir + timeIndex[timeIndex.length-1].name);
+            res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+            return res.write(finalFrame);
+          }
           d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
         }
+        
         await sleep(d - deviation);
         frameIndex = nextFrameIndex;
       }
@@ -295,6 +303,7 @@ async function saveTimelapse() {
     console.warn("Timelapse index", e);
   }
   console.log("Timelapse index length", timeIndex.length);
+  let nextTimelapse = Math.floor(Date.now() / 1000);
 
   while (true) {
     try {
