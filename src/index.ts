@@ -9,6 +9,7 @@ import binarySearch from 'binary-search';
 
 import { TimeIndex, TimeStamp } from './types';
 import { sleep, write } from './helpers';
+import { redeploy, createStateFromFileSystem } from './admin';
 
 // Configurable values
 const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality

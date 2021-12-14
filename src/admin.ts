@@ -1,23 +1,32 @@
 import { exec } from "child_process";
 import { ServerResponse } from "http";
-import { readDir, stat } from "fs/promises";
+import { readdir, stat } from "fs/promises";
+import path from 'path'
 
-import type { TimeIndex } from './types';
+import type { TimeIndex, TimeStamp } from './types';
 import { write } from "./helpers";
 
-async function createStateFromFileSystem(root: string): Promise<TimeIndex[]> {
-    const t:TimeIndex[] ;
+export async function createStateFromFileSystem(root: string): Promise<TimeIndex[]> {
+    const t:TimeIndex[] = [];
 
     // For each day
     debugger;
-    for (const day of await readDir(root)) {
-        for (const file of await readDir(root + '/' + day)) {
-          const s = await stat()
+    for (const day of await readdir(root)) {
+        for (const file of await readdir(path.join(root, day))) {
+          const s = await stat(path.join(root,day,file));
+          t.push({
+            name: path.join(day,file),
+            size: s.size,
+            time: Math.floor(s.ctime.getTime() / 1000) as TimeStamp
+          })
         }
     }
+
+    t.sort((a,b) => a.time - b.time)
+    return t;
 }
 
-function redeploy(res: ServerResponse) {
+export function redeploy(res: ServerResponse) {
     console.log("Re-deploying");
     const p = exec('npm run deploy', async (error, stdout, stderr) => {
       await write(res, stdout + '\n\n');

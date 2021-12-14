@@ -11,7 +11,7 @@ const serve_static_1 = __importDefault(require("serve-static"));
 const path_1 = __importDefault(require("path"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
-const child_process_1 = require("child_process");
+const helpers_1 = require("./helpers");
 // Configurable values
 const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
@@ -34,35 +34,18 @@ let lastFrame;
 let timeIndex = [];
 let nextTimelapse = Math.floor(Date.now() / 1000);
 const options = { ...defaults };
-function sleep(seconds) {
-    if (seconds > 0)
-        return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-    return Promise.resolve();
-}
-function write(res, data) {
-    return new Promise(resolve => res.write(data, resolve));
-}
 async function handleHttpRequest(req, res) {
     try {
         const url = new url_1.URL("http://server" + req.url);
         const qs = url.searchParams;
         switch (url.pathname) {
-            case '/deploy':
-            case '/deploy/':
-                console.log("Re-deploying");
-                const p = (0, child_process_1.exec)('npm run deploy', async (error, stdout, stderr) => {
-                    await write(res, stdout + '\n\n');
-                    if (error) {
-                        await write(res, error.message + '\n\n' + stderr);
-                        res.end();
-                    }
-                    else {
-                        res.end();
-                        (0, child_process_1.exec)('pm2 restart obscura');
-                    }
-                });
-                p.stdout?.pipe(process.stdout);
-                p.stderr?.pipe(process.stderr);
+            case '/admin/redeploy':
+            case '/admin/redeploy/':
+                redeploy(res);
+                return;
+            case '/admin/build-state':
+            case '/admin/build-state/':
+                const newState = await createStateFromFileSystem(timelapseDir);
                 return;
             case '/photo':
             case '/photo/':
@@ -157,7 +140,7 @@ async function streamPreview(req, res) {
         try {
             frameSent = false;
             res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
-            await write(res, frameData);
+            await (0, helpers_1.write)(res, frameData);
             frameSent = true;
         }
         catch (ex) {
@@ -205,7 +188,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
                 // Send a frame to the client
                 const frame = timeIndex[frameIndex];
                 res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-                await write(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
+                await (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
                 // Having written the first frame, we'll want to send another one in T+1/fps in real time.
                 // which is T+speed/fps in timelapse time. 
                 let nextFrameIndex = (0, binary_search_1.default)(timeIndex, frame.time + speed / fps || 0, (t, n) => t.time - n);
@@ -225,7 +208,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
                         return sendFrame(res, await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name));
                     d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 }
-                await sleep(d - deviation);
+                await (0, helpers_1.sleep)(d - deviation);
                 frameIndex = nextFrameIndex;
             }
         }
@@ -240,9 +223,9 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
 async function takePhoto(quality = PHOTO_QUALITY) {
     if (!pi_camera_native_ts_1.default.running) {
         await pi_camera_native_ts_1.default.start({ ...options, quality: quality });
-        await sleep(1); // Wait for camaera to do AWB and Exposure control
+        await (0, helpers_1.sleep)(1); // Wait for camaera to do AWB and Exposure control
         const frameData = await pi_camera_native_ts_1.default.nextFrame();
-        await sleep(0.1);
+        await (0, helpers_1.sleep)(0.1);
         await pi_camera_native_ts_1.default.stop();
         return frameData;
     }
@@ -296,7 +279,7 @@ async function saveTimelapse() {
         catch (e) {
             console.warn("Failed to take timelapse photo", e);
         }
-        await sleep(nextTimelapse - Date.now() / 1000);
+        await (0, helpers_1.sleep)(nextTimelapse - Date.now() / 1000);
     }
 }
 (0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
