@@ -10,16 +10,20 @@ export async function createStateFromFileSystem(root: string): Promise<TimeIndex
     const t:TimeIndex[] = [];
 
     // For each day
-    debugger;
     for (const day of await readdir(root)) {
+      const d = await stat(path.join(root,day));
+      if (d.isDirectory()) {
         for (const file of await readdir(path.join(root, day))) {
           const s = await stat(path.join(root,day,file));
-          t.push({
-            name: path.join(day,file),
-            size: s.size,
-            time: Math.floor(s.ctime.getTime() / 1000) as TimeStamp
-          })
+          if (s.isFile() && file.endsWith('.jpg')) {
+            t.push({
+              name: path.join(day,file),
+              size: s.size,
+              time: Math.floor(s.ctime.getTime() / 1000) as TimeStamp
+            })
+          }
         }
+      }
     }
 
     t.sort((a,b) => a.time - b.time)

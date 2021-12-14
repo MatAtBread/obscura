@@ -12,6 +12,7 @@ const path_1 = __importDefault(require("path"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
 const helpers_1 = require("./helpers");
+const admin_1 = require("./admin");
 // Configurable values
 const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
@@ -41,11 +42,15 @@ async function handleHttpRequest(req, res) {
         switch (url.pathname) {
             case '/admin/redeploy':
             case '/admin/redeploy/':
-                redeploy(res);
+                (0, admin_1.redeploy)(res);
                 return;
             case '/admin/build-state':
             case '/admin/build-state/':
-                const newState = await createStateFromFileSystem(timelapseDir);
+                const newIndex = await (0, admin_1.createStateFromFileSystem)(timelapseDir);
+                // We do a sync write to ensure teh file can't
+                // be appended to in mid-write
+                (0, fs_1.writeFileSync)(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+                timeIndex = newIndex;
                 return;
             case '/photo':
             case '/photo/':

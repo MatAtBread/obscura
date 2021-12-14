@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import serveStatic from 'serve-static';
 import path from 'path';
 import camera from 'pi-camera-native-ts';
@@ -49,7 +49,11 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
       case '/admin/build-state':
       case '/admin/build-state/':
-        const newState = await createStateFromFileSystem(timelapseDir);
+        const newIndex = await createStateFromFileSystem(timelapseDir);
+        // We do a sync write to ensure teh file can't
+        // be appended to in mid-write
+        writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
+        timeIndex = newIndex;
         return;
   
           case '/photo':
