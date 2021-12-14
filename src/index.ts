@@ -54,6 +54,8 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         // be appended to in mid-write
         writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
         timeIndex = newIndex;
+        res.write(`Complete. ${timeIndex.length} frames loaded`);
+        res.end();
         return;
   
           case '/photo':
@@ -81,17 +83,16 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/preview/':
         await streamPreview(req, res);
         return;
-
-      case '/':
-        req.url = "/index.html";
-        break;
     }
     if (!req.url || req.url.indexOf('..') >= 0)
       throw new Error('Not found');
 
+    if (req.url.endsWith('/'))
+      req.url += "index.html";
+
     wwwStatic(req, res, () => {
       res.statusCode = 404;
-      res.write("Not found");
+      res.write("Not found: "+req.url);
       res.end();
     });
   } catch (ex: any) {
