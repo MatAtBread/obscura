@@ -6,7 +6,7 @@ Obscura is a simple node app that runs on a RaspberryPi (in my case, a Pi Zero 2
 * Auto-adjusts quality & frame-rate to suit network conditions.
 * Simple, embedded API for viewing live video, taking HQ photos and playing time-lapses
 
-![required](./screenshot.jpg)
+![required](https://github.com/MatAtBread/obscura/raw/master/screenshot.jpg)
 
 ## Requirements
 A RaspberryPi with enabled camera (see raspi-config). Developed and tested on RaspberryPi buster, later OS versions may need an additional download (for camera / MMAL support) as the camera module is built on that API for performance.
@@ -27,7 +27,7 @@ The app has no known security issues, however, connecting a Raspberry Pi to the 
 * Disable PasswordAuthetication in [sshd](https://www.e2enetworks.com/help/knowledge-base/how-to-enable-disable-password-based-authentication-for-ssh-access-to-server/) and only allow access via pre-installed keys.
 * Don't use NAT or put a hole in your firewall that directly accesses the service (default port is 8000). If you want to see you images remotely, use SSH and a tunnel: ` ssh -L 8001:localhost:8000` and access the service as `http://localhost:8001`
 
-The `/admin` page offers auto-deployment from source github repo (if you installed from github & run under pm2). **If you make you Obscura available on the internet, any one cnan redeploy to yout server**. It is recommended that Obscura is not available to the public (ie only done on a home network, VPN or via a SSH tunnel) unless you disable this feature.
+The `/admin` page offers auto-deployment from source github repo (if you installed from github & run under pm2). **If you make you Obscura available on the internet, any one can redeploy to your server**. It is recommended that Obscura is not available to the public (ie only done on a home network, VPN or via a SSH tunnel) unless you disable this feature.
 
 ## TO DO
 * Add some kind of simple auth to the `/admin` URL
