@@ -7,45 +7,68 @@ const http_1 = require("http");
 const url_1 = require("url");
 const promises_1 = require("fs/promises");
 const fs_1 = require("fs");
-const serve_static_1 = __importDefault(require("serve-static"));
 const path_1 = __importDefault(require("path"));
+const serve_static_1 = __importDefault(require("serve-static"));
 const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
+const helpers_1 = require("./helpers");
+const admin_1 = require("./admin");
 // Configurable values
 const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
-const TIMELAPSE_QUALITY = 15; // Quality of timelapse images
-const TIMELAPSE_FPS = 10; // Target FPS for timelapse playback
-const TIMELAPSE_SPEED = 600; // Default: 10 minutes -> 1 second (or 1 hour=>6 seconds, 1 day=>2m24s)
-const TIMELAPSE_INTERVAL = 60; // Record one frame per minute (value in seconds)
+const DEFAULT_QUALITY = 12;
 const PORT = 8000;
 const defaults = {
     width: 1920,
     height: 1080,
     fps: 20,
     encoding: 'JPEG',
-    quality: 7
+    quality: DEFAULT_QUALITY
+};
+const timelapse = {
+    quality: DEFAULT_QUALITY,
+    playbackFps: 15,
+    speed: 3600,
+    intervalSeconds: 300 // Record one frame every 5 minutes (value in seconds)  
 };
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
 const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'));
+// Other singleton variables
+const preview = { ...defaults };
 let lastFrame;
 let timeIndex = [];
-let nextTimelapse = Math.floor(Date.now() / 1000);
-const options = { ...defaults };
-function sleep(seconds) {
-    if (seconds > 0)
-        return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-    return Promise.resolve();
-}
-function write(res, data) {
-    return new Promise(resolve => res.write(data, resolve));
-}
 async function handleHttpRequest(req, res) {
     try {
         const url = new url_1.URL("http://server" + req.url);
         const qs = url.searchParams;
         switch (url.pathname) {
+            case '/info':
+            case '/info/':
+                res.setHeader("Content-type", "application/json");
+                res.write(JSON.stringify({
+                    totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
+                    countFrames: timeIndex.length,
+                    startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time),
+                    preview,
+                    timelapse
+                }));
+                res.end();
+                return;
+            case '/admin/redeploy':
+            case '/admin/redeploy/':
+                (0, admin_1.redeploy)(res);
+                return;
+            case '/admin/build-state':
+            case '/admin/build-state/':
+                const newIndex = await (0, admin_1.createStateFromFileSystem)(timelapseDir);
+                // We do a sync write to ensure teh file can't
+                // be appended to in mid-write
+                (0, fs_1.writeFileSync)(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+                timeIndex = newIndex;
+                res.write(`Complete. ${timeIndex.length} frames loaded`);
+                res.end();
+                return;
             case '/photo':
             case '/photo/':
                 sendFrame(res, await takePhoto(Number(qs.get('q') || PHOTO_QUALITY)));
@@ -53,9 +76,9 @@ async function handleHttpRequest(req, res) {
             case '/timelapse':
             case '/timelapse/':
                 await streamTimelapse(req, res, {
-                    fps: Number(qs.get('fps') || TIMELAPSE_FPS),
-                    since: Number(qs.get('since')) || undefined,
-                    speed: Number(qs.get('speed') || TIMELAPSE_SPEED)
+                    fps: Number(qs.get('fps') || timelapse.playbackFps),
+                    since: qs.has('since') ? new Date(qs.get('since') || 0) : undefined,
+                    speed: Number(qs.get('speed') || timelapse.speed)
                 });
                 return;
             case '/lastframe':
@@ -68,15 +91,14 @@ async function handleHttpRequest(req, res) {
             case '/preview/':
                 await streamPreview(req, res);
                 return;
-            case '/':
-                req.url = "/index.html";
-                break;
         }
         if (!req.url || req.url.indexOf('..') >= 0)
             throw new Error('Not found');
+        if (req.url.endsWith('/'))
+            req.url += "index.html";
         wwwStatic(req, res, () => {
             res.statusCode = 404;
-            res.write("Not found");
+            res.write("Not found: " + req.url);
             res.end();
         });
     }
@@ -113,23 +135,23 @@ async function streamPreview(req, res) {
         try {
             if (!frameSent) {
                 if (++dropped > FPS_TRANSITION) {
-                    options.quality = Math.max(2, Math.floor(options.quality * 0.8));
+                    preview.quality = Math.max(2, Math.floor(preview.quality * 0.8));
                     if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                         passed = 0;
                         dropped = 0;
-                        console.log("frame-", frameData.length, options.quality);
-                        await pi_camera_native_ts_1.default.setConfig(options);
+                        console.log("frame-", frameData.length, preview.quality);
+                        await pi_camera_native_ts_1.default.setConfig(preview);
                     }
                 }
                 return;
             }
             if (++passed > dropped + FPS_TRANSITION) {
-                options.quality += 1;
+                preview.quality += 1;
                 if (pi_camera_native_ts_1.default.listenerCount('frame') > 0) {
                     passed = 0;
                     dropped = 0;
-                    console.log("frame+", frameData.length, options.quality);
-                    await pi_camera_native_ts_1.default.setConfig(options);
+                    console.log("frame+", frameData.length, preview.quality);
+                    await pi_camera_native_ts_1.default.setConfig(preview);
                 }
             }
         }
@@ -139,7 +161,7 @@ async function streamPreview(req, res) {
         try {
             frameSent = false;
             res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
-            await write(res, frameData);
+            await (0, helpers_1.write)(res, frameData);
             frameSent = true;
         }
         catch (ex) {
@@ -152,13 +174,13 @@ async function streamPreview(req, res) {
         previewFrame(lastFrame);
     pi_camera_native_ts_1.default.on('frame', previewFrame);
     if (pi_camera_native_ts_1.default.listenerCount('frame') === 1)
-        await pi_camera_native_ts_1.default.start(options); //await camera.resume();
+        await pi_camera_native_ts_1.default.start(preview); //await camera.resume();
     req.once('close', async () => {
         res.end();
         pi_camera_native_ts_1.default.removeListener('frame', previewFrame);
         if (pi_camera_native_ts_1.default.listenerCount('frame') === 0) {
-            if (options.quality < defaults.quality)
-                options.quality = defaults.quality;
+            if (preview.quality < defaults.quality)
+                preview.quality = defaults.quality;
             //await camera.setConfig(options);
             //await camera.pause();
             await pi_camera_native_ts_1.default.stop();
@@ -179,7 +201,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
             throw new Error("Not yet implemented");
         }
         else {
-            let frameIndex = (0, binary_search_1.default)(timeIndex, since || 0, (t, n) => t.time - n);
+            let frameIndex = (0, binary_search_1.default)(timeIndex, (since ? since.getTime() : 0), (t, n) => t.time - n);
             if (frameIndex < 0)
                 frameIndex = ~frameIndex;
             while (!closed) {
@@ -187,7 +209,7 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
                 // Send a frame to the client
                 const frame = timeIndex[frameIndex];
                 res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-                await write(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
+                await (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
                 // Having written the first frame, we'll want to send another one in T+1/fps in real time.
                 // which is T+speed/fps in timelapse time. 
                 let nextFrameIndex = (0, binary_search_1.default)(timeIndex, frame.time + speed / fps || 0, (t, n) => t.time - n);
@@ -196,18 +218,24 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
                 if (nextFrameIndex === frameIndex)
                     nextFrameIndex += 1;
                 // Check we've not run out of frames
-                if (nextFrameIndex >= timeIndex.length)
-                    return sendFrame(res, await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name));
+                if (nextFrameIndex >= timeIndex.length) {
+                    const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
+                    res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+                    return res.write(finalFrame);
+                }
                 // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
                 const deviation = (Date.now() / 1000 - time);
                 let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 while (d < deviation) {
                     nextFrameIndex += 1;
-                    if (nextFrameIndex >= timeIndex.length)
-                        return sendFrame(res, await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name));
+                    if (nextFrameIndex >= timeIndex.length) {
+                        const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
+                        res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+                        return res.write(finalFrame);
+                    }
                     d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 }
-                await sleep(d - deviation);
+                await (0, helpers_1.sleep)(d - deviation);
                 frameIndex = nextFrameIndex;
             }
         }
@@ -221,18 +249,18 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
 }
 async function takePhoto(quality = PHOTO_QUALITY) {
     if (!pi_camera_native_ts_1.default.running) {
-        await pi_camera_native_ts_1.default.start({ ...options, quality: quality });
-        await sleep(1); // Wait for camaera to do AWB and Exposure control
+        await pi_camera_native_ts_1.default.start({ ...preview, quality: quality });
+        await (0, helpers_1.sleep)(1); // Wait for camaera to do AWB and Exposure control
         const frameData = await pi_camera_native_ts_1.default.nextFrame();
-        await sleep(0.1);
+        await (0, helpers_1.sleep)(0.1);
         await pi_camera_native_ts_1.default.stop();
         return frameData;
     }
     else {
-        await pi_camera_native_ts_1.default.setConfig({ ...options, quality: quality });
+        await pi_camera_native_ts_1.default.setConfig({ ...preview, quality: quality });
         await pi_camera_native_ts_1.default.nextFrame();
         const frameData = await pi_camera_native_ts_1.default.nextFrame();
-        await pi_camera_native_ts_1.default.setConfig(options);
+        await pi_camera_native_ts_1.default.setConfig(preview);
         return frameData;
     }
 }
@@ -253,10 +281,11 @@ async function saveTimelapse() {
         console.warn("Timelapse index", e);
     }
     console.log("Timelapse index length", timeIndex.length);
+    let nextTimelapse = Math.floor(Date.now() / 1000);
     while (true) {
         try {
-            nextTimelapse += TIMELAPSE_INTERVAL;
-            const photo = lastFrame = await takePhoto(TIMELAPSE_QUALITY);
+            nextTimelapse += timelapse.intervalSeconds;
+            const photo = lastFrame = await takePhoto(timelapse.quality);
             const now = new Date();
             const path = String(now.getUTCFullYear()) + '_'
                 + String(now.getMonth() + 1).padStart(2, '0') + '_'
@@ -278,10 +307,10 @@ async function saveTimelapse() {
         catch (e) {
             console.warn("Failed to take timelapse photo", e);
         }
-        await sleep(nextTimelapse - Date.now() / 1000);
+        await (0, helpers_1.sleep)(nextTimelapse - Date.now() / 1000);
     }
 }
 (0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
-    console.log('Listening on port ' + PORT);
+    console.log(`Verison ${require('../package.json').version}: listening on port ${PORT}`);
     saveTimelapse();
 });
