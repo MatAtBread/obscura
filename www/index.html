@@ -1,39 +1,149 @@
 <html>
-    <style>
-        #preview {
-            position: absolute;
-            width: calc(100% - 5em);
-            margin-left: 4em;
-            overflow-y: scroll;
+<style>
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+  }
+
+  #preview {
+    width: 100%;
+    overflow-y: scroll;
+  }
+
+  #menu {
+    font-size: 3em;
+    position: fixed;
+    left: 0.2em;
+    right: 1em;
+    z-index: 2;
+    width: min-content;
+  }
+
+  icon {
+    display: block;
+    opacity: 0.5;
+  }
+
+  #moreToggle {
+    font-size: 3em;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: inline-block;
+    position: fixed;
+    top: 0.2em;
+    right: 0.2em;
+    padding: 0px 0.3em 0.15em;
+  }
+
+  #more {
+    color: white;
+    background-color: rgba(0, 0, 0, 0.3);
+    position: relative;
+    bottom: 5em;
+    height: 5em;
+    z-index: 3;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+</style>
+
+<body>
+  <icon id="moreToggle" onclick="toggleMore()">&#8942;</icon>
+  <div id="menu">
+    <icon id="/preview/" onclick="showSource(this.id)">&#128250;</icon>
+    <icon id="/lastframe/" onclick="showSource(this.id)">&#9209;</icon>
+    <icon id="/timelapse/" onclick="showTimelapse(false)">&#9193;</icon>
+    <icon id="/timelapse/?reverse=1" onclick="showTimelapse(true)">&#9194;</icon>
+    <a href="/photo/" download="obscura.jpg">
+      <icon>&#128247;</icon>
+    </a>
+  </div>
+  <div style="height: max-content;">
+    <img id="preview" src="/lastframe">
+    <div id="more" style="display: none;">
+      <input id="at" type='range' style="width: 100%; display: block;">
+      <div id="when" style='text-align: center;'></div>
+      <div style="background-color: none; text-align: center;">
+        Speed: <input id="speed" type='number' style='width: 3em'>
+        <select id="units">
+          <option value=60>minutes</option>
+          <option value=3600>hours</option>
+          <option value=86400>days</option>
+        </select>
+        fps: <input id="fps" value="12" type='number' style='width: 3em'>
+      </div>
+    </div>
+  </div>
+</body>
+<script>
+  function showSource(id) {
+    toggleMore(false);
+    setPreviewSrc(id);
+  }
+  function sleep(seconds) {
+    if (seconds > 0)
+        return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    return Promise.resolve();
+  }
+
+  function setPreviewSrc(src) {
+    const preview = document.getElementById('preview');
+    preview.onload = preview.onerror = () => preview.isLoading = false;
+    preview.isLoading = true;
+    preview.src = src;    
+  }
+
+  async function showTimelapse(f) {
+    const units = +document.getElementById('units').value;
+    const speed = +document.getElementById('speed').value;
+    const fps = +document.getElementById('fps').value;
+    const at = +document.getElementById('at').value;
+    const when = document.getElementById('when');
+    const preview = document.getElementById('preview');
+    setPreviewSrc("/timelapse/?since=" + at * 1000 
+      + "&speed=" + (units * speed * (f?-1:1))
+      + "&fps="+ fps)
+  }
+  async function initMoreInfo() {
+    const info = await fetch("/info").then(resp => resp.json());
+    const units = document.getElementById('units');
+    const speed = document.getElementById('speed');
+    if (info.timelapse.speed < 3600)
+      units.value = 60;
+    else if (info.timelapse.speed < 86400)
+      units.value = 3600;
+    else
+      units.value = 86400;
+    speed.value = info.timelapse.speed / units.value;
+    at.min = info.startFrame;
+    at.max = at.max = Math.floor(Date.now() / 1000);
+  }
+  async function toggleMore(flag) {
+    const e = document.getElementById("more");
+    const at = e.children.at;
+    if (flag === false || !e.style.display) {
+      e.style.display = "none";
+      at.oninput = null;
+    } else {
+      e.style.display = "";
+      await initMoreInfo();
+      function updatePreview() {
+        const when = new Date(at.value * 1000);
+        const preview = document.getElementById("preview");
+
+        if (!preview.isLoading) {
+          setPreviewSrc("/at.jpg?t=" + when.getTime());
+          e.children.when.textContent = when.toString();
         }
-        #menu {
-            position: fixed;
-            left: 0px;
-            right: 4em;
-        }
-        icon {
-            display: block;
-            width: 1em;
-            font-size: 3em;
-        }
-        a {
-            color: inherit;
-            text-decoration: inherit;
-        }
-    </style>
-    <body>        
-        <div id="menu">
-            <icon id="/lastframe/" onclick="showSource(this.id)">&#10052;</icon>
-            <icon id="/preview/" onclick="showSource(this.id)">&#128250;</icon>
-            <icon id="/timelapse/" onclick="showSource(this.id)">&#9193;</icon>
-            <icon id="/timelapse/?reverse=1" onclick="showSource(this.id)">&#9194;</icon>
-            <a href="/photo/" download="obscura.jpg"><icon>&#128247;</icon></a>
-        </div>
-        <img id="preview" src="/lastframe">
-    </body>
-    <script>
-        function showSource(id) {
-            document.getElementById("preview").src = id;
-        }
-    </script>
+      }
+      (at.oninput = updatePreview)();
+    }
+  }
+  initMoreInfo();
+
+</script>
+
 </html>
