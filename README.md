@@ -28,3 +28,7 @@ The app has no known security issues, however, connecting a Raspberry Pi to the 
 * Don't use NAT or put a hole in your firewall that directly accesses the service (default port is 8000). If you want to see you images remotely, use SSH and a tunnel: ` ssh -L 8001:localhost:8000` and access the service as `http://localhost:8001`
 
 The `/admin` page offers auto-deployment from source github repo (if you installed from github & run under pm2). **If you make you Obscura available on the internet, any one cnan redeploy to yout server**. It is recommended that Obscura is not available to the public (ie only done on a home network, VPN or via a SSH tunnel) unless you disable this feature.
+
+## TO DO
+* Add some kind of simple auth to the `/admin` URL
+* Add options for managing storage (it will at present eventually fill your SD card)
