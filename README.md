@@ -18,7 +18,7 @@ Alternatively, clone (and `npm i`) the repo at https://github.com/MatAtBread/obs
 
 I run it with [pm2](https://pm2.keymetrics.io/) to ensure it starts up after a reboot or if the app crashes.
 
-You can then view yout images at `http://<your-pi-host>:8000
+You can then view your images & video at `http://<your-pi-host>:8000`
 
 ## Security
 The app has no known security issues, however, connecting a Raspberry Pi to the internet without any protection is unwise. Potential mitigation strategies are:
