@@ -12,7 +12,7 @@ Obscura is a simple node app that runs on a RaspberryPi (in my case, a Pi Zero 2
 A RaspberryPi with enabled camera (see raspi-config). Developed and tested on RaspberryPi buster, later OS versions may need an additional download (for camera / MMAL support) as the camera module is built on that API for performance.
 
 ## Installation
-```npm i obscura``` 
+```npm i pi-obscura``` 
 
 Alternatively, clone (and `npm i`) the repo at https://github.com/MatAtBread/obscura.git and run with [pm2](https://pm2.keymetrics.io/). In this configuration, you can aurto-deploy updates remotely (see [Security](#security) for more info).
 
