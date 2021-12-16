@@ -4,11 +4,21 @@
     margin: 0;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     overflow: hidden;
+    background-color: #333;
   }
 
-  #preview {
-    width: 100%;
-    overflow-y: scroll;
+  @media (max-aspect-ratio: 16/9) {
+    #preview {
+      width: 100%;
+      overflow-y: scroll;
+    }
+  }
+
+  @media (min-aspect-ratio: 16/9) {
+    #preview {
+      height: 100%;
+      overflow-x: scroll;
+    }
   }
 
   #menu {
@@ -62,7 +72,7 @@
       <icon>&#128247;</icon>
     </a>
   </div>
-  <div style="height: max-content;">
+  <div style="height: 100%; width: 100%">
     <img id="preview" src="/lastframe">
     <div id="more" style="display: none;">
       <input id="at" type='range' style="width: 100%; display: block;">
@@ -86,7 +96,7 @@
   }
   function sleep(seconds) {
     if (seconds > 0)
-        return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+      return new Promise(resolve => setTimeout(resolve, seconds * 1000));
     return Promise.resolve();
   }
 
@@ -94,7 +104,7 @@
     const preview = document.getElementById('preview');
     preview.onload = preview.onerror = () => preview.isLoading = false;
     preview.isLoading = true;
-    preview.src = src;    
+    preview.src = src;
   }
 
   async function showTimelapse(f) {
@@ -104,9 +114,9 @@
     const at = +document.getElementById('at').value;
     const when = document.getElementById('when');
     const preview = document.getElementById('preview');
-    setPreviewSrc("/timelapse/?since=" + at * 1000 
-      + "&speed=" + (units * speed * (f?-1:1))
-      + "&fps="+ fps)
+    setPreviewSrc("/timelapse/?since=" + at * 1000
+      + "&speed=" + (units * speed * (f ? -1 : 1))
+      + "&fps=" + fps)
   }
   async function initMoreInfo() {
     const info = await fetch("/info").then(resp => resp.json());
@@ -146,5 +156,4 @@
   initMoreInfo();
 
 </script>
-
 </html>

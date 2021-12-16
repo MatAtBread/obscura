@@ -27,7 +27,7 @@ const defaults = {
     encoding: 'JPEG',
     quality: DEFAULT_QUALITY,
     rotation: 0,
-    mirror: 2
+    mirror: 0
 };
 const timelapse = {
     quality: DEFAULT_QUALITY,

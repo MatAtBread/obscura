@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
 import serveStatic from 'serve-static';
-import camera from 'pi-camera-native-ts';
+import camera, { CameraOptions, Mirror } from 'pi-camera-native-ts';
 import binarySearch from 'binary-search';
 
 import { TimeIndex, TimeStamp } from './types';
@@ -20,14 +20,14 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 
 // Configurable constants
-const defaults = {
+const defaults: CameraOptions = {
   width: 1920,
   height: 1080,
   fps: 20,
   encoding: 'JPEG',
   quality: DEFAULT_QUALITY,
   rotation: 0,
-  mirror: 2
+  mirror: Mirror.NONE
 };
 
 const timelapse = {
