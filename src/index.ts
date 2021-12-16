@@ -25,7 +25,9 @@ const defaults = {
   height: 1080,
   fps: 20,
   encoding: 'JPEG',
-  quality: DEFAULT_QUALITY
+  quality: DEFAULT_QUALITY,
+  rotation: 0,
+  mirror: 2
 };
 
 const timelapse = {
