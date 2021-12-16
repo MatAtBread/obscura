@@ -1,6 +1,6 @@
 {
   "name": "pi-obscura",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Raspberry Pi timelapse camera",
   "main": "dist/index.js",
   "scripts": {
@@ -12,7 +12,7 @@
   "license": "MIT",
   "dependencies": {
     "binary-search": "^1.3.6",
-    "pi-camera-native-ts": "file:../node-raspberry-pi-camera-native",
+    "pi-camera-native-ts": "^0.0.5",
     "serve-static": "^1.14.1"
   },
   "devDependencies": {

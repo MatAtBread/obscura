@@ -19,16 +19,32 @@ const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 
-// Configurable constants
-const defaults: CameraOptions = {
-  width: 1920,
-  height: 1080,
-  fps: 20,
-  encoding: 'JPEG',
-  quality: DEFAULT_QUALITY,
-  rotation: 0,
-  mirror: Mirror.NONE
+let config : {
+  defaults: CameraOptions
 };
+
+const configPath = path.join(__dirname, '../config/config.json');
+try {
+  config = require(configPath);
+  if (config?.defaults?.encoding !== 'JPEG') {
+    throw new Error("Invalid config");
+  }
+} catch (ex) {
+  config = {
+    defaults:{
+      width: 1920,
+      height: 1080,
+      fps: 20,
+      encoding: 'JPEG',
+      quality: DEFAULT_QUALITY,
+      rotation: 0,
+      mirror: Mirror.NONE
+    }
+  } 
+}
+
+// Configurable constants
+const defaults: CameraOptions = config.defaults;
 
 const timelapse = {
   quality: DEFAULT_QUALITY,   // Quality of timelapse images
@@ -51,6 +67,31 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     const qs = url.searchParams;
 
     switch (url.pathname) {
+      case '/settings':
+      case '/settings/':
+        if (qs.has("rotate"))
+          defaults.rotation = (defaults.rotation + 90) % 360 as CameraOptions['rotation'];
+        if (qs.has("hmirror"))
+          defaults.mirror = defaults.mirror ^ Mirror.HORZ;
+        if (qs.has("vmirror"))
+          defaults.mirror = defaults.mirror ^ Mirror.VERT;
+
+        if (camera.running) {
+          // For some reason changing flip while the camera is running fails, so 
+          // we have to stop/start it
+          if (qs.has("hmirror") || qs.has("vmirror")) {
+            await camera.stop();
+            await camera.start({ ...defaults, quality: previewQuality });
+            await sleep(0.4);
+          } else {
+            await camera.setConfig({ ...defaults, quality: previewQuality });
+          }
+        }
+        res.write(JSON.stringify(defaults));
+        res.end();
+        await writeFile(configPath, JSON.stringify(config));
+        return;
+
       case '/at.jpg':
         const t = qs.has('t') ? new Date(Number(qs.get('t') || 0)) : undefined
         let frameIndex = binarySearch(timeIndex, (t ? t.getTime() / 1000 : 0) as TimeStamp, (t, n) => t.time - n);

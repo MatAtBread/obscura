@@ -12,12 +12,18 @@
       width: 100%;
       overflow-y: scroll;
     }
+    #more {
+      font-size: 3em;
+    }
   }
 
   @media (min-aspect-ratio: 16/9) {
     #preview {
       height: 100%;
       overflow-x: scroll;
+    }
+    #more {
+      font-size: 1.5em;
     }
   }
 
@@ -54,6 +60,9 @@
     height: 5em;
     z-index: 3;
   }
+  #more * {
+    font-size: inherit;
+  }
 
   a {
     color: inherit;
@@ -67,29 +76,37 @@
     <icon id="/preview/" onclick="showSource(this.id)">&#128250;</icon>
     <icon id="/lastframe/" onclick="showSource(this.id)">&#9209;</icon>
     <icon id="/timelapse/" onclick="showTimelapse(false)">&#9193;</icon>
-    <icon id="/timelapse/?reverse=1" onclick="showTimelapse(true)">&#9194;</icon>
+    <!--icon id="/timelapse/?reverse=1" onclick="showTimelapse(true)">&#9194;</icon-->
+    <icon onclick="changeSettings('rotate')">&#128260;</icon>
+    <icon onclick="changeSettings('hmirror')">&#128257;</icon>
+    <icon onclick="changeSettings('vmirror')">&#128259;</icon>
     <a href="/photo/" download="obscura.jpg">
       <icon>&#128247;</icon>
     </a>
   </div>
-  <div style="height: 100%; width: 100%">
+  <div style="height: 100%; width: 100%; text-align: center;">
     <img id="preview" src="/lastframe">
-    <div id="more" style="display: none;">
-      <input id="at" type='range' style="width: 100%; display: block;">
-      <div id="when" style='text-align: center;'></div>
-      <div style="background-color: none; text-align: center;">
-        Speed: <input id="speed" type='number' style='width: 3em'>
-        <select id="units">
-          <option value=60>minutes</option>
-          <option value=3600>hours</option>
-          <option value=86400>days</option>
-        </select>
-        fps: <input id="fps" value="12" type='number' style='width: 3em'>
-      </div>
+  </div>
+  <div id="more" style="display: none;">
+    <input id="at" type='range' style="width: 100%; display: block;">
+    <div id="when" style='text-align: center;'></div>
+    <div style="background-color: none; text-align: center;">
+      Speed: <input id="speed" type='number' style='width: 3em'>
+      <select id="units">
+        <option value=60>minutes</option>
+        <option value=3600>hours</option>
+        <option value=86400>days</option>
+      </select>
+      fps: <input id="fps" value="12" type='number' style='width: 3em'>
     </div>
   </div>
 </body>
 <script>
+  async function changeSettings(reason){
+    const s = await fetch('/settings/?'+reason).then(r => r.json());
+    console.log(s);
+    setPreviewSrc('/photo/?q=15');
+  }
   function showSource(id) {
     toggleMore(false);
     setPreviewSrc(id);
@@ -147,7 +164,7 @@
 
         if (!preview.isLoading) {
           setPreviewSrc("/at.jpg?t=" + when.getTime());
-          e.children.when.textContent = when.toString();
+          e.children.when.textContent = when.toString().substring(0,25);
         }
       }
       (at.oninput = updatePreview)();

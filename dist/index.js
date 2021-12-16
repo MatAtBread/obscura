@@ -1,4 +1,23 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -9,7 +28,7 @@ const promises_1 = require("fs/promises");
 const fs_1 = require("fs");
 const path_1 = __importDefault(require("path"));
 const serve_static_1 = __importDefault(require("serve-static"));
-const pi_camera_native_ts_1 = __importDefault(require("pi-camera-native-ts"));
+const pi_camera_native_ts_1 = __importStar(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
 const helpers_1 = require("./helpers");
 const admin_1 = require("./admin");
@@ -19,16 +38,29 @@ const PHOTO_QUALITY = 90; // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
+let config;
+const configPath = path_1.default.join(__dirname, '../config/config.json');
+try {
+    config = require(configPath);
+    if (config?.defaults?.encoding !== 'JPEG') {
+        throw new Error("Invalid config");
+    }
+}
+catch (ex) {
+    config = {
+        defaults: {
+            width: 1920,
+            height: 1080,
+            fps: 20,
+            encoding: 'JPEG',
+            quality: DEFAULT_QUALITY,
+            rotation: 0,
+            mirror: pi_camera_native_ts_1.Mirror.NONE
+        }
+    };
+}
 // Configurable constants
-const defaults = {
-    width: 1920,
-    height: 1080,
-    fps: 20,
-    encoding: 'JPEG',
-    quality: DEFAULT_QUALITY,
-    rotation: 0,
-    mirror: 0
-};
+const defaults = config.defaults;
 const timelapse = {
     quality: DEFAULT_QUALITY,
     speed: 14400,
@@ -46,6 +78,30 @@ async function handleHttpRequest(req, res) {
         const url = new url_1.URL("http://server" + req.url);
         const qs = url.searchParams;
         switch (url.pathname) {
+            case '/settings':
+            case '/settings/':
+                if (qs.has("rotate"))
+                    defaults.rotation = (defaults.rotation + 90) % 360;
+                if (qs.has("hmirror"))
+                    defaults.mirror = defaults.mirror ^ pi_camera_native_ts_1.Mirror.HORZ;
+                if (qs.has("vmirror"))
+                    defaults.mirror = defaults.mirror ^ pi_camera_native_ts_1.Mirror.VERT;
+                if (pi_camera_native_ts_1.default.running) {
+                    // For some reason changing flip while the camera is running fails, so 
+                    // we have to stop/start it
+                    if (qs.has("hmirror") || qs.has("vmirror")) {
+                        await pi_camera_native_ts_1.default.stop();
+                        await pi_camera_native_ts_1.default.start({ ...defaults, quality: previewQuality });
+                        await (0, helpers_1.sleep)(0.4);
+                    }
+                    else {
+                        await pi_camera_native_ts_1.default.setConfig({ ...defaults, quality: previewQuality });
+                    }
+                }
+                res.write(JSON.stringify(defaults));
+                res.end();
+                await (0, promises_1.writeFile)(configPath, JSON.stringify(config));
+                return;
             case '/at.jpg':
                 const t = qs.has('t') ? new Date(Number(qs.get('t') || 0)) : undefined;
                 let frameIndex = (0, binary_search_1.default)(timeIndex, (t ? t.getTime() / 1000 : 0), (t, n) => t.time - n);
