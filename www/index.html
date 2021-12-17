@@ -8,20 +8,32 @@
   }
 
   @media (max-aspect-ratio: 16/9) {
-    #preview {
+    .landscape #preview {
       width: 100%;
       overflow-y: scroll;
     }
+
+    .portrait #preview {
+      height: 100%;
+      overflow-x: scroll;
+    }
+
     #more {
       font-size: 3em;
     }
   }
 
   @media (min-aspect-ratio: 16/9) {
-    #preview {
+    .landscape #preview {
       height: 100%;
       overflow-x: scroll;
     }
+
+    .portrait #preview {
+      width: 100%;
+      overflow-y: scroll;
+    }
+
     #more {
       font-size: 1.5em;
     }
@@ -36,9 +48,12 @@
     width: min-content;
   }
 
-  icon {
-    display: block;
+  #menu>icon {
     opacity: 0.5;
+  }
+
+  icon {
+    display: inline-block;
   }
 
   #moreToggle {
@@ -56,12 +71,18 @@
     color: white;
     background-color: rgba(0, 0, 0, 0.3);
     position: relative;
-    bottom: 5em;
-    height: 5em;
+    bottom: 7em;
+    height: 7em;
     z-index: 3;
+    text-align: center;
   }
+
   #more * {
     font-size: inherit;
+  }
+
+  #more icon {
+    font-size: 2em;
   }
 
   a {
@@ -73,13 +94,10 @@
 <body>
   <icon id="moreToggle" onclick="toggleMore()">&#8942;</icon>
   <div id="menu">
-    <icon id="/preview/" onclick="showSource(this.id)">&#128250;</icon>
-    <icon id="/lastframe/" onclick="showSource(this.id)">&#9209;</icon>
+    <icon id="/preview/" onclick="setPreviewSrc(this.id)">&#128250;</icon>
+    <icon id="/lastframe/" onclick="setPreviewSrc(this.id)">&#9209;</icon>
     <icon id="/timelapse/" onclick="showTimelapse(false)">&#9193;</icon>
     <!--icon id="/timelapse/?reverse=1" onclick="showTimelapse(true)">&#9194;</icon-->
-    <icon onclick="changeSettings('rotate')">&#128260;</icon>
-    <icon onclick="changeSettings('hmirror')">&#128257;</icon>
-    <icon onclick="changeSettings('vmirror')">&#128259;</icon>
     <a href="/photo/" download="obscura.jpg">
       <icon>&#128247;</icon>
     </a>
@@ -90,7 +108,7 @@
   <div id="more" style="display: none;">
     <input id="at" type='range' style="width: 100%; display: block;">
     <div id="when" style='text-align: center;'></div>
-    <div style="background-color: none; text-align: center;">
+    <div>
       Speed: <input id="speed" type='number' style='width: 3em'>
       <select id="units">
         <option value=60>minutes</option>
@@ -99,17 +117,20 @@
       </select>
       fps: <input id="fps" value="12" type='number' style='width: 3em'>
     </div>
+    <div>
+      <icon onclick="changeSettings('rotate')">&#128260;</icon>
+      <icon onclick="changeSettings('hmirror')">&#128257;</icon>
+      <icon onclick="changeSettings('vmirror')">&#128259;</icon>
+      <icon onclick="changeSettings('landscape')">&#128256;</icon>
+    </div>
   </div>
 </body>
 <script>
-  async function changeSettings(reason){
-    const s = await fetch('/settings/?'+reason).then(r => r.json());
-    console.log(s);
-    setPreviewSrc('/photo/?q=15');
-  }
-  function showSource(id) {
-    toggleMore(false);
-    setPreviewSrc(id);
+  async function changeSettings(reason) {
+    const info = await fetch('/settings/?' + reason).then(r => r.json());
+    document.body.classList[info.config.landscape ? 'add' : 'remove']('landscape');
+    document.body.classList[info.config.landscape ? 'remove' : 'add']('portrait');
+    setPreviewSrc('/preview/');
   }
   function sleep(seconds) {
     if (seconds > 0)
@@ -137,15 +158,17 @@
   }
   async function initMoreInfo() {
     const info = await fetch("/info").then(resp => resp.json());
+    document.body.classList[info.config.landscape ? 'add' : 'remove']('landscape');
+    document.body.classList[info.config.landscape ? 'remove' : 'add']('portrait');
     const units = document.getElementById('units');
     const speed = document.getElementById('speed');
-    if (info.timelapse.speed < 3600)
+    if (info.config.timelapse.speed < 3600)
       units.value = 60;
-    else if (info.timelapse.speed < 86400)
+    else if (info.config.timelapse.speed < 86400)
       units.value = 3600;
     else
       units.value = 86400;
-    speed.value = info.timelapse.speed / units.value;
+    speed.value = info.config.timelapse.speed / units.value;
     at.min = info.startFrame;
     at.max = at.max = Math.floor(Date.now() / 1000);
   }
@@ -164,13 +187,14 @@
 
         if (!preview.isLoading) {
           setPreviewSrc("/at.jpg?t=" + when.getTime());
-          e.children.when.textContent = when.toString().substring(0,25);
+          e.children.when.textContent = when.toString().substring(0, 25);
         }
       }
-      (at.oninput = updatePreview)();
+      at.oninput = updatePreview;
+      updatePreview();
     }
   }
   initMoreInfo();
-
 </script>
+
 </html>

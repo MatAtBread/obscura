@@ -18,20 +18,31 @@ const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
+const CONFIG_VERSION = 1;
 
 let config : {
-  defaults: CameraOptions
+  version: 1,
+  landscape: boolean,
+  camera: CameraOptions,
+  timelapse: {
+    quality: number,
+    speed: number,
+    intervalSeconds: number
+  }
+
 };
 
 const configPath = path.join(__dirname, '../config/config.json');
 try {
   config = require(configPath);
-  if (config?.defaults?.encoding !== 'JPEG') {
+  if (config?.version !== CONFIG_VERSION || config?.camera?.encoding !== 'JPEG') {
     throw new Error("Invalid config");
   }
 } catch (ex) {
   config = {
-    defaults:{
+    version: 1,
+    landscape: true,
+    camera:{
       width: 1920,
       height: 1080,
       fps: 20,
@@ -39,27 +50,39 @@ try {
       quality: DEFAULT_QUALITY,
       rotation: 0,
       mirror: Mirror.NONE
+    },
+    timelapse: {
+      quality: DEFAULT_QUALITY,   // Quality of timelapse images
+      speed: 14400,               // Default: 4 hours -> 1 second
+      intervalSeconds: 300        // Record one frame every 5 minutes (value in seconds)  
     }
   } 
 }
 
 // Configurable constants
-const defaults: CameraOptions = config.defaults;
-
-const timelapse = {
-  quality: DEFAULT_QUALITY,   // Quality of timelapse images
-  speed: 14400,               // Default: 4 hours -> 1 second
-  intervalSeconds: 300        // Record one frame every 5 minutes (value in seconds)  
+function cameraConfig(overrides: Partial<CameraOptions> = {}) {
+  const r = {...config.camera, ...overrides};
+  if (!config.landscape) {
+    const swap = r.width;
+    r.width = r.height;
+    r.height = swap;
+  }
+  return r;
 }
 
 // Pre-calculated constants
 const timelapseDir = path.join(__dirname, '../www/timelapse/');
-const wwwStatic = serveStatic(path.join(__dirname, '../www'));
+const wwwStatic = serveStatic(path.join(__dirname, '../www'), {
+  maxAge: 3600000,
+  redirect: false
+});
 
 // Other singleton variables
-let previewQuality = defaults.quality;  // Dynamically modified quality
+let previewQuality = config.camera.quality;  // Dynamically modified quality
 let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
+
+camera.on('frame', frame => lastFrame = frame);
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -70,25 +93,23 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/settings':
       case '/settings/':
         if (qs.has("rotate"))
-          defaults.rotation = (defaults.rotation + 90) % 360 as CameraOptions['rotation'];
+          config.camera.rotation = (config.camera.rotation + 90) % 360 as CameraOptions['rotation'];
         if (qs.has("hmirror"))
-          defaults.mirror = defaults.mirror ^ Mirror.HORZ;
+          config.camera.mirror = config.camera.mirror ^ Mirror.HORZ;
         if (qs.has("vmirror"))
-          defaults.mirror = defaults.mirror ^ Mirror.VERT;
+          config.camera.mirror = config.camera.mirror ^ Mirror.VERT;
+        if (qs.has("landscape"))
+          config.landscape = !config.landscape;
 
         if (camera.running) {
           // For some reason changing flip while the camera is running fails, so 
-          // we have to stop/start it
-          if (qs.has("hmirror") || qs.has("vmirror")) {
-            await camera.stop();
-            await camera.start({ ...defaults, quality: previewQuality });
-            await sleep(0.4);
-          } else {
-            await camera.setConfig({ ...defaults, quality: previewQuality });
-          }
+          // we have to stop/start it rather than use setConfig.
+          // Since rotate updates the frame size, we have to restart the camera
+          await camera.stop();
+          await camera.start(cameraConfig({ quality: previewQuality }));
+          await sleep(0.1);
         }
-        res.write(JSON.stringify(defaults));
-        res.end();
+        sendInfo(res);
         await writeFile(configPath, JSON.stringify(config));
         return;
 
@@ -107,15 +128,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
       case '/info':
       case '/info/':
-        res.setHeader("Content-type", "application/json");
-        res.write(JSON.stringify({
-          totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
-          countFrames: timeIndex.length,
-          startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
-          previewQuality,
-          timelapse
-        }));
-        res.end();
+        sendInfo(res);
         return;
 
       case '/admin/redeploy':
@@ -142,9 +155,9 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse/':
         sendMJPEGHeaders(res);
         await streamTimelapse(req, res, {
-          fps: Number(qs.get('fps') || defaults.fps),
+          fps: Number(qs.get('fps') || config.camera.fps),
           since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
-          speed: Number(qs.get('speed') || timelapse.speed)
+          speed: Number(qs.get('speed') || config.timelapse.speed)
         });
         return;
 
@@ -181,6 +194,18 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
+function sendInfo(res: ServerResponse) {
+  res.setHeader("Content-type", "application/json");
+  res.write(JSON.stringify({
+    previewQuality,
+    totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
+    countFrames: timeIndex.length,
+    startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
+    config
+  }));
+  res.end();
+}
+
 function sendMJPEGHeaders(res: ServerResponse) {
   res.writeHead(200, {
     'Cache-Control': 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0',
@@ -207,16 +232,15 @@ async function streamPreview(req: IncomingMessage, res: ServerResponse) {
   let dropped = 0;
   let passed = 0;
   const previewFrame = async (frameData: Buffer) => {
-    lastFrame = frameData;
     try {
       if (!frameSent) {
         if (++dropped > FPS_TRANSITION) {
           previewQuality = Math.max(MINIMUM_QUALITY, Math.floor(previewQuality * 0.8));
-          if (camera.listenerCount('frame') > 0) {
+          if (camera.listenerCount('frame') > 1) {
             passed = 0;
             dropped = 0;
             //console.log("frame-", frameData.length, previewQuality);
-            await camera.setConfig({ ...defaults, quality: previewQuality });
+            await camera.setConfig(cameraConfig({ quality: previewQuality }));
           }
         }
         return;
@@ -224,11 +248,11 @@ async function streamPreview(req: IncomingMessage, res: ServerResponse) {
 
       if (++passed > dropped + FPS_TRANSITION) {
         previewQuality += 1;
-        if (camera.listenerCount('frame') > 0) {
+        if (camera.listenerCount('frame') > 1) {
           passed = 0;
           dropped = 0;
           //console.log("frame+", frameData.length, previewQuality);
-          await camera.setConfig({ ...defaults, quality: previewQuality });
+          await camera.setConfig(cameraConfig({ quality: previewQuality }));
         }
       }
     } catch (e) {
@@ -250,13 +274,13 @@ async function streamPreview(req: IncomingMessage, res: ServerResponse) {
     previewFrame(lastFrame);
 
   camera.on('frame', previewFrame);
-  if (camera.listenerCount('frame') === 1)
-    await camera.start({ ...defaults, quality: previewQuality });
+  if (camera.listenerCount('frame') === 2)
+    await camera.start(cameraConfig({ quality: previewQuality }));
 
   req.once('close', async () => {
     res.end();
     camera.removeListener('frame', previewFrame);
-    if (camera.listenerCount('frame') === 0) {
+    if (camera.listenerCount('frame') === 1) {
       await camera.stop();
     }
   });
@@ -319,17 +343,17 @@ async function streamTimelapse(req: IncomingMessage, res: ServerResponse, { fps,
 
 async function takePhoto(quality = PHOTO_QUALITY): Promise<Buffer> {
   if (!camera.running) {
-    await camera.start({ ...defaults, quality: quality });
+    await camera.start(cameraConfig({ quality }));
     await sleep(1); // Wait for camaera to do AWB and Exposure control
     const frameData = await camera.nextFrame();
     await sleep(0.1);
     await camera.stop();
     return frameData;
   } else {
-    await camera.setConfig({ ...defaults, quality: quality });
+    await camera.setConfig(cameraConfig({ quality}));
     await camera.nextFrame();
     const frameData = await camera.nextFrame();
-    await camera.setConfig({ ...defaults, quality: previewQuality });
+    await camera.setConfig(cameraConfig({ quality: previewQuality }));
     return frameData;
   }
 }
@@ -361,8 +385,8 @@ async function saveTimelapse() {
 
   while (true) {
     try {
-      nextTimelapse += timelapse.intervalSeconds;
-      const photo = lastFrame = await takePhoto(timelapse.quality);
+      nextTimelapse += config.timelapse.intervalSeconds;
+      const photo = await takePhoto(config.timelapse.quality);
       const now = new Date();
       const path = String(now.getUTCFullYear()) + '_'
         + String(now.getMonth() + 1).padStart(2, '0') + '_'
