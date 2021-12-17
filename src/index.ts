@@ -13,7 +13,6 @@ import { sleep, write } from './helpers';
 import { redeploy, createStateFromFileSystem } from './admin';
 
 // Configurable values
-const FPS_TRANSITION = 30;      // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
@@ -29,7 +28,6 @@ let config : {
     speed: number,
     intervalSeconds: number
   }
-
 };
 
 const configPath = path.join(__dirname, '../config/config.json');
@@ -79,10 +77,7 @@ const wwwStatic = serveStatic(path.join(__dirname, '../www'), {
 
 // Other singleton variables
 let previewQuality = config.camera.quality;  // Dynamically modified quality
-let lastFrame: Buffer | undefined;
 let timeIndex: Array<TimeIndex> = [];
-
-camera.on('frame', frame => lastFrame = frame);
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -163,9 +158,9 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
       case '/lastframe':
       case '/lastframe/':
-        if (!lastFrame)
+        if (!camera.lastFrame)
           throw new Error("Camera not started");
-        sendFrame(res, lastFrame);
+        sendFrame(res, camera.lastFrame);
         return;
 
       case '/preview':
@@ -229,34 +224,28 @@ function sendFrame(res: ServerResponse, frameData: Buffer) {
 
 async function streamPreview(req: IncomingMessage, res: ServerResponse) {
   let frameSent = true;
-  let dropped = 0;
-  let passed = 0;
+  let prevFrameSent = true;
   const previewFrame = async (frameData: Buffer) => {
     try {
-      if (!frameSent) {
-        if (++dropped > FPS_TRANSITION) {
-          previewQuality = Math.max(MINIMUM_QUALITY, Math.floor(previewQuality * 0.8));
-          if (camera.listenerCount('frame') > 1) {
-            passed = 0;
-            dropped = 0;
-            //console.log("frame-", frameData.length, previewQuality);
-            await camera.setConfig(cameraConfig({ quality: previewQuality }));
-          }
+      if (!frameSent && prevFrameSent) {
+        previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality-1) * 0.9);
+        if (camera.running) {
+          await camera.setConfig(cameraConfig({ quality: previewQuality }));
         }
         return;
       }
 
-      if (++passed > dropped + FPS_TRANSITION) {
-        previewQuality += 1;
-        if (camera.listenerCount('frame') > 1) {
-          passed = 0;
-          dropped = 0;
-          //console.log("frame+", frameData.length, previewQuality);
+      if (frameSent) {
+        previewQuality += 0.125; // Takes effect after 8 frames
+        if (camera.running) {
           await camera.setConfig(cameraConfig({ quality: previewQuality }));
         }
       }
+
     } catch (e) {
       console.warn("Failed to change quality", e);
+    } finally {
+      prevFrameSent = frameSent;
     }
 
     try {
@@ -270,17 +259,17 @@ async function streamPreview(req: IncomingMessage, res: ServerResponse) {
     }
   };
 
-  if (lastFrame)
-    previewFrame(lastFrame);
+  if (camera.lastFrame)
+    previewFrame(camera.lastFrame);
 
   camera.on('frame', previewFrame);
-  if (camera.listenerCount('frame') === 2)
+  if (camera.listenerCount('frame') === 1)
     await camera.start(cameraConfig({ quality: previewQuality }));
 
   req.once('close', async () => {
     res.end();
     camera.removeListener('frame', previewFrame);
-    if (camera.listenerCount('frame') === 1) {
+    if (camera.listenerCount('frame') === 0) {
       await camera.stop();
     }
   });

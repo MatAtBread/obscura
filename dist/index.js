@@ -33,7 +33,6 @@ const binary_search_1 = __importDefault(require("binary-search"));
 const helpers_1 = require("./helpers");
 const admin_1 = require("./admin");
 // Configurable values
-const FPS_TRANSITION = 30; // Threshold of dropped/extra frames before the preview algorithm changes quality
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
@@ -85,9 +84,7 @@ const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..
 });
 // Other singleton variables
 let previewQuality = config.camera.quality; // Dynamically modified quality
-let lastFrame;
 let timeIndex = [];
-pi_camera_native_ts_1.default.on('frame', frame => lastFrame = frame);
 async function handleHttpRequest(req, res) {
     try {
         const url = new url_1.URL("http://server" + req.url);
@@ -157,9 +154,9 @@ async function handleHttpRequest(req, res) {
                 return;
             case '/lastframe':
             case '/lastframe/':
-                if (!lastFrame)
+                if (!pi_camera_native_ts_1.default.lastFrame)
                     throw new Error("Camera not started");
-                sendFrame(res, lastFrame);
+                sendFrame(res, pi_camera_native_ts_1.default.lastFrame);
                 return;
             case '/preview':
             case '/preview/':
@@ -217,34 +214,28 @@ function sendFrame(res, frameData) {
 }
 async function streamPreview(req, res) {
     let frameSent = true;
-    let dropped = 0;
-    let passed = 0;
+    let prevFrameSent = true;
     const previewFrame = async (frameData) => {
         try {
-            if (!frameSent) {
-                if (++dropped > FPS_TRANSITION) {
-                    previewQuality = Math.max(MINIMUM_QUALITY, Math.floor(previewQuality * 0.8));
-                    if (pi_camera_native_ts_1.default.listenerCount('frame') > 1) {
-                        passed = 0;
-                        dropped = 0;
-                        //console.log("frame-", frameData.length, previewQuality);
-                        await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality }));
-                    }
+            if (!frameSent && prevFrameSent) {
+                previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality - 1) * 0.9);
+                if (pi_camera_native_ts_1.default.running) {
+                    await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality }));
                 }
                 return;
             }
-            if (++passed > dropped + FPS_TRANSITION) {
-                previewQuality += 1;
-                if (pi_camera_native_ts_1.default.listenerCount('frame') > 1) {
-                    passed = 0;
-                    dropped = 0;
-                    //console.log("frame+", frameData.length, previewQuality);
+            if (frameSent) {
+                previewQuality += 0.125; // Takes effect after 8 frames
+                if (pi_camera_native_ts_1.default.running) {
                     await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality }));
                 }
             }
         }
         catch (e) {
             console.warn("Failed to change quality", e);
+        }
+        finally {
+            prevFrameSent = frameSent;
         }
         try {
             frameSent = false;
@@ -256,15 +247,15 @@ async function streamPreview(req, res) {
             console.warn('Unable to send frame', ex);
         }
     };
-    if (lastFrame)
-        previewFrame(lastFrame);
+    if (pi_camera_native_ts_1.default.lastFrame)
+        previewFrame(pi_camera_native_ts_1.default.lastFrame);
     pi_camera_native_ts_1.default.on('frame', previewFrame);
-    if (pi_camera_native_ts_1.default.listenerCount('frame') === 2)
+    if (pi_camera_native_ts_1.default.listenerCount('frame') === 1)
         await pi_camera_native_ts_1.default.start(cameraConfig({ quality: previewQuality }));
     req.once('close', async () => {
         res.end();
         pi_camera_native_ts_1.default.removeListener('frame', previewFrame);
-        if (pi_camera_native_ts_1.default.listenerCount('frame') === 1) {
+        if (pi_camera_native_ts_1.default.listenerCount('frame') === 0) {
             await pi_camera_native_ts_1.default.stop();
         }
     });
