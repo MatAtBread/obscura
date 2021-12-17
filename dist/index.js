@@ -80,7 +80,8 @@ function cameraConfig(overrides = {}) {
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
 const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'), {
-    maxAge: 3600000
+    maxAge: 3600000,
+    redirect: false
 });
 // Other singleton variables
 let previewQuality = config.camera.quality; // Dynamically modified quality
