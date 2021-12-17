@@ -13,11 +13,6 @@
       overflow-y: scroll;
     }
 
-    .portrait #preview {
-      height: 100%;
-      overflow-x: scroll;
-    }
-
     #more {
       font-size: 3em;
     }
@@ -29,13 +24,22 @@
       overflow-x: scroll;
     }
 
+    #more {
+      font-size: 1.5em;
+    }
+  }
+
+  @media (max-aspect-ratio: 9/16) {
     .portrait #preview {
       width: 100%;
       overflow-y: scroll;
     }
+  }
 
-    #more {
-      font-size: 1.5em;
+  @media (min-aspect-ratio: 9/16) {
+    .portrait #preview {
+      height: 100%;
+      overflow-x: scroll;
     }
   }
 
