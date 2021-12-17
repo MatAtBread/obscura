@@ -12,20 +12,12 @@
       width: 100%;
       overflow-y: scroll;
     }
-
-    #more {
-      font-size: 3em;
-    }
   }
 
   @media (min-aspect-ratio: 16/9) {
     .landscape #preview {
       height: 100%;
       overflow-x: scroll;
-    }
-
-    #more {
-      font-size: 1.5em;
     }
   }
 
@@ -44,7 +36,6 @@
   }
 
   #menu {
-    font-size: 3em;
     position: fixed;
     left: 0.2em;
     right: 1em;
@@ -52,12 +43,14 @@
     width: min-content;
   }
 
-  #menu>icon {
+  #menu > icon {
     opacity: 0.5;
   }
 
   icon {
     display: inline-block;
+    font-size: calc(3vw + 3vh);
+    padding-top: 1vh;
   }
 
   #moreToggle {
@@ -75,18 +68,15 @@
     color: white;
     background-color: rgba(0, 0, 0, 0.3);
     position: relative;
-    bottom: 7em;
-    height: 7em;
+    bottom: 5em;
+    height: 5em;
     z-index: 3;
     text-align: center;
+    font-size: 3em;
   }
 
   #more * {
     font-size: inherit;
-  }
-
-  #more icon {
-    font-size: 2em;
   }
 
   a {
