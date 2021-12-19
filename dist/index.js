@@ -32,6 +32,7 @@ const pi_camera_native_ts_1 = __importStar(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
 const helpers_1 = require("./helpers");
 const admin_1 = require("./admin");
+const child_process_1 = require("child_process");
 // Configurable values
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
@@ -145,12 +146,32 @@ async function handleHttpRequest(req, res) {
                 return;
             case '/timelapse':
             case '/timelapse/':
-                sendMJPEGHeaders(res);
-                await streamTimelapse(req, res, {
-                    fps: Number(qs.get('fps') || config.camera.fps),
-                    since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
-                    speed: Number(qs.get('speed') || config.timelapse.speed)
-                });
+                if (qs.has("compress")) {
+                    const fps = Number(qs.get('fps') || 5);
+                    let ffmpeg = (0, child_process_1.spawn)('ffmpeg', `-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v 2M -zerocopy 1 -r ${fps} -`.split(' '));
+                    res.writeHead(200, {
+                        Connection: 'close',
+                        'Content-Type': 'video/x-matroska'
+                    });
+                    ffmpeg.stdout.pipe(res);
+                    ffmpeg.stderr.pipe(process.stdout);
+                    res.once('close', () => ffmpeg?.kill('SIGINT'));
+                    await streamTimelapse(ffmpeg, ffmpeg.stdin, {
+                        fast: true,
+                        fps,
+                        since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
+                        speed: Number(qs.get('speed') || config.timelapse.speed)
+                    });
+                    ffmpeg = undefined;
+                }
+                else {
+                    sendMJPEGHeaders(res);
+                    await streamTimelapse(req, res, {
+                        fps: Number(qs.get('fps') || config.camera.fps),
+                        since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
+                        speed: Number(qs.get('speed') || config.timelapse.speed)
+                    });
+                }
                 return;
             case '/lastframe':
             case '/lastframe/':
@@ -260,7 +281,7 @@ async function streamPreview(req, res) {
         }
     });
 }
-async function streamTimelapse(req, res, { fps, speed, since }) {
+async function streamTimelapse(req, res, { fps, speed, since, fast }) {
     let closed = false;
     req.once('close', () => closed = true);
     if (speed < 0) {
@@ -275,7 +296,9 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
             // Send a frame to the client
             const frame = timeIndex[frameIndex];
             res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-            await (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
+            const flushed = (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
+            if (!fast)
+                await flushed;
             // Having written the first frame, we'll want to send another one in T+1/fps in real time.
             // which is T+speed/fps in timelapse time. 
             let nextFrameIndex = (0, binary_search_1.default)(timeIndex, frame.time + speed / fps || 0, (t, n) => t.time - n);
@@ -291,21 +314,23 @@ async function streamTimelapse(req, res, { fps, speed, since }) {
                 res.end();
                 return;
             }
-            // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
-            const deviation = (Date.now() / 1000 - time);
-            let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
-            while (d < deviation && !closed) {
-                nextFrameIndex += 1;
-                if (nextFrameIndex >= timeIndex.length) {
-                    const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
-                    res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
-                    res.write(finalFrame);
-                    res.end();
-                    return;
+            if (!fast) {
+                // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
+                const deviation = (Date.now() / 1000 - time);
+                let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
+                while (d < deviation && !closed) {
+                    nextFrameIndex += 1;
+                    if (nextFrameIndex >= timeIndex.length) {
+                        const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
+                        res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+                        res.write(finalFrame);
+                        res.end();
+                        return;
+                    }
+                    d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 }
-                d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
+                await (0, helpers_1.sleep)(d - deviation);
             }
-            await (0, helpers_1.sleep)(d - deviation);
             frameIndex = nextFrameIndex;
         }
     }
