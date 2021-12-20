@@ -116,6 +116,7 @@
       <icon onclick="changeSettings('hmirror')">&#128257;</icon>
       <icon onclick="changeSettings('vmirror')">&#128259;</icon>
       <icon onclick="changeSettings('landscape')">&#128256;</icon>
+      <a onclick="this.href=downloadVideo()" download><icon>&#128190;</icon></a>
     </div>
   </div>
 </body>
@@ -138,6 +139,18 @@
     preview.isLoading = true;
     preview.src = src;
   }
+
+  function downloadVideo() {
+    const units = +document.getElementById('units').value;
+    const speed = +document.getElementById('speed').value;
+    const fps = +document.getElementById('fps').value;
+    const at = +document.getElementById('at').value;
+    return "/timelapse/?since=" + at * 1000
+      + "&compress"
+      + "&speed=" + (units * speed)
+      + "&fps=" + fps
+  }
+
 
   async function showTimelapse(f) {
     const units = +document.getElementById('units').value;
