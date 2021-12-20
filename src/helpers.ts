@@ -1,4 +1,4 @@
-import { ServerResponse } from "http";
+import { Writable } from 'stream';
 
 export function sleep(seconds: number) {
     if (seconds > 0)
@@ -6,6 +6,6 @@ export function sleep(seconds: number) {
     return Promise.resolve();
 }
 
-export function write(res: ServerResponse, data: string | Buffer) {
+export function write(res: Writable, data: string | Buffer) {
     return new Promise(resolve => res.write(data, resolve));
 }
