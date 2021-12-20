@@ -22,6 +22,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const child_process_1 = require("child_process");
 const http_1 = require("http");
 const url_1 = require("url");
 const promises_1 = require("fs/promises");
@@ -32,7 +33,6 @@ const pi_camera_native_ts_1 = __importStar(require("pi-camera-native-ts"));
 const binary_search_1 = __importDefault(require("binary-search"));
 const helpers_1 = require("./helpers");
 const admin_1 = require("./admin");
-const child_process_1 = require("child_process");
 // Configurable values
 const PHOTO_QUALITY = 90; // Quality for downloaded photo images
 const DEFAULT_QUALITY = 12;
@@ -185,7 +185,7 @@ async function handleHttpRequest(req, res) {
                         'Content-Type': 'video/x-matroska'
                     });
                     ffmpeg.stdout.pipe(res);
-                    ffmpeg.stderr.pipe(process.stdout);
+                    ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg", e));
                     ffmpeg.once('close', () => ffmpeg = undefined);
                     res.once('close', () => ffmpeg?.kill('SIGINT'));
                     await streamTimelapse(ffmpeg, ffmpeg.stdin, {

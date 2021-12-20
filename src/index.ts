@@ -1,4 +1,5 @@
 import { EventEmitter, Writable } from 'stream';
+import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { writeFile, readFile, mkdir, appendFile, unlink } from 'fs/promises';
@@ -12,7 +13,6 @@ import binarySearch from 'binary-search';
 import { TimeIndex, TimeStamp } from './types';
 import { sleep, write } from './helpers';
 import { redeploy, createStateFromFileSystem } from './admin';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 
 // Configurable values
 const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
@@ -192,7 +192,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             'Content-Type': 'video/x-matroska'
           });
           ffmpeg.stdout.pipe(res);
-          ffmpeg.stderr.pipe(process.stdout);
+          ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg",e));
           ffmpeg.once('close', () => ffmpeg = undefined);
           res.once('close', ()=> ffmpeg?.kill('SIGINT'));
           await streamTimelapse(ffmpeg, ffmpeg.stdin, {
