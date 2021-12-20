@@ -1,7 +1,7 @@
 import { EventEmitter, Writable } from 'stream';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
-import { writeFile, readFile, mkdir, appendFile } from 'fs/promises';
+import { writeFile, readFile, mkdir, appendFile, unlink } from 'fs/promises';
 import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 
@@ -139,8 +139,33 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         // We do a sync write to ensure the file can't be appended to in mid-write
         writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
         timeIndex = newIndex;
-        res.write(`Complete. ${timeIndex.length} frames loaded`);
-        res.end();
+        sendInfo(res);
+        return;
+
+      case '/admin/prune':
+      case '/admin/prune/':
+        const interval = Number(qs.has('interval') && qs.get('interval'));
+        if (!interval || interval < config.timelapse.intervalSeconds)
+          throw new Error("Invalid interval parameter");
+
+        let removed = 0;
+        let preserved = 0;
+        let lastTime = 0;
+        const tNew: TimeIndex[] = [];
+        for (const t of timeIndex) {
+          if (t.time - lastTime < interval) {
+            removed += 1;
+            await unlink(timelapseDir + t.name);
+          } else {
+            preserved += 1;
+            tNew.push(t);
+            lastTime = t.time;
+          }
+        }
+        timeIndex = tNew;
+        // We do a sync write to ensure the file can't be appended to in mid-write
+        writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
+        sendInfo(res, { preserved, removed });
         return;
 
       case '/photo':
@@ -151,8 +176,8 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse':
       case '/timelapse/':
         if (qs.has("compress")) {
-          // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support,
-          // so although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame 
+          // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support, so
+          // although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame rate
           // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well with the WiFi bandwidth of the
           // Pi Zero 2.
 
@@ -160,7 +185,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           // drop frames to reduce buffering/latency, and in the case of sendPreview will also lower JPEG quality
           
           // This mechanism is also unsuitable for /preview/ as the latency is very high 
-          const fps = Number(qs.get('fps') || 5);
+          const fps = Number(qs.has('fps') && qs.get('fps') || 5);
           let ffmpeg:ChildProcessWithoutNullStreams|undefined = spawn('ffmpeg',`-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v 2M -zerocopy 1 -r ${fps} -`.split(' '))
           res.writeHead(200, {
             Connection: 'close',
@@ -170,7 +195,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           ffmpeg.stderr.pipe(process.stdout);
           ffmpeg.once('close', () => ffmpeg = undefined);
           res.once('close', ()=> ffmpeg?.kill('SIGINT'));
-          streamTimelapse(ffmpeg, ffmpeg.stdin, {
+          await streamTimelapse(ffmpeg, ffmpeg.stdin, {
             fast: true,
             fps,
             since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
@@ -178,7 +203,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           });
         } else {
           sendMJPEGHeaders(res);
-          streamTimelapse(req, res, {
+          await streamTimelapse(req, res, {
             fps: Number(qs.get('fps') || config.camera.fps),
             since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
             speed: Number(qs.get('speed') || config.timelapse.speed)
@@ -196,7 +221,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/preview':
       case '/preview/':
         sendMJPEGHeaders(res);
-        streamPreview(req, res);
+        await streamPreview(req, res, Number(qs.get('fps') || config.camera.fps));
         return;
     }
 
@@ -221,15 +246,16 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
-function sendInfo(res: ServerResponse) {
+function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo) {
   res.setHeader("Content-type", "application/json");
   res.write(JSON.stringify({
     previewQuality,
     totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
     countFrames: timeIndex.length,
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
-    config
-  }));
+    config,
+    moreInfo
+  },null,2));
   res.end();
 }
 
@@ -295,7 +321,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number = con
     previewFrame(camera.lastFrame);
 
   camera.on('frame', previewFrame);
-  if (camera.listenerCount('frame') === 1)
+  if (!camera.running)
     await camera.start(cameraConfig({ quality: previewQuality, fps }));
 
   req.once('close', async () => {
