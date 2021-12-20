@@ -12,7 +12,7 @@ import binarySearch from 'binary-search';
 import { TimeIndex, TimeStamp } from './types';
 import { sleep, write } from './helpers';
 import { redeploy, createStateFromFileSystem } from './admin';
-import { ChildProcess, ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 
 // Configurable values
 const PHOTO_QUALITY = 90;       // Quality for downloaded photo images
@@ -151,6 +151,15 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse':
       case '/timelapse/':
         if (qs.has("compress")) {
+          // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support,
+          // so although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame 
+          // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well with the WiFi bandwidth of the
+          // Pi Zero 2.
+
+          // In any case (for example over a mobile phone, ssh, etc), both sendTimelapse & sendPreview will
+          // drop frames to reduce buffering/latency, and in the case of sendPreview will also lower JPEG quality
+          
+          // This mechanism is also unsuitable for /preview/ as the latency is very high 
           const fps = Number(qs.get('fps') || 5);
           let ffmpeg:ChildProcessWithoutNullStreams|undefined = spawn('ffmpeg',`-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v 2M -zerocopy 1 -r ${fps} -`.split(' '))
           res.writeHead(200, {
@@ -159,19 +168,17 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           });
           ffmpeg.stdout.pipe(res);
           ffmpeg.stderr.pipe(process.stdout);
-          res.once('close', ()=> ffmpeg?.kill('SIGINT'))
-        
-          await streamTimelapse(ffmpeg, ffmpeg.stdin, {
+          ffmpeg.once('close', () => ffmpeg = undefined);
+          res.once('close', ()=> ffmpeg?.kill('SIGINT'));
+          streamTimelapse(ffmpeg, ffmpeg.stdin, {
             fast: true,
             fps,
             since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
             speed: Number(qs.get('speed') || config.timelapse.speed)
           });
-
-          ffmpeg = undefined;
         } else {
           sendMJPEGHeaders(res);
-          await streamTimelapse(req, res, {
+          streamTimelapse(req, res, {
             fps: Number(qs.get('fps') || config.camera.fps),
             since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
             speed: Number(qs.get('speed') || config.timelapse.speed)
@@ -189,9 +196,11 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/preview':
       case '/preview/':
         sendMJPEGHeaders(res);
-        await streamPreview(req, res);
+        streamPreview(req, res);
         return;
     }
+
+    // Static resources
     if (!req.url || req.url.indexOf('..') >= 0)
       throw new Error('Not found');
 
@@ -245,7 +254,7 @@ function sendFrame(res: ServerResponse, frameData: Buffer) {
   res.end();
 }
 
-async function streamPreview(req: EventEmitter, res: Writable) {
+async function streamPreview(req: EventEmitter, res: Writable, fps: number = config.camera.fps) {
   let frameSent = true;
   let prevFrameSent = true;
   const previewFrame = async (frameData: Buffer) => {
@@ -253,7 +262,7 @@ async function streamPreview(req: EventEmitter, res: Writable) {
       if (!frameSent && prevFrameSent) {
         previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality-1) * 0.9);
         if (camera.running) {
-          await camera.setConfig(cameraConfig({ quality: previewQuality }));
+          await camera.setConfig(cameraConfig({ quality: previewQuality, fps }));
         }
         return;
       }
@@ -261,7 +270,7 @@ async function streamPreview(req: EventEmitter, res: Writable) {
       if (frameSent) {
         previewQuality += 0.125; // Takes effect after 8 frames
         if (camera.running) {
-          await camera.setConfig(cameraConfig({ quality: previewQuality }));
+          await camera.setConfig(cameraConfig({ quality: previewQuality, fps }));
         }
       }
 
@@ -287,7 +296,7 @@ async function streamPreview(req: EventEmitter, res: Writable) {
 
   camera.on('frame', previewFrame);
   if (camera.listenerCount('frame') === 1)
-    await camera.start(cameraConfig({ quality: previewQuality }));
+    await camera.start(cameraConfig({ quality: previewQuality, fps }));
 
   req.once('close', async () => {
     res.end();

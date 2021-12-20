@@ -147,6 +147,13 @@ async function handleHttpRequest(req, res) {
             case '/timelapse':
             case '/timelapse/':
                 if (qs.has("compress")) {
+                    // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support,
+                    // so although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame 
+                    // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well with the WiFi bandwidth of the
+                    // Pi Zero 2.
+                    // In any case (for example over a mobile phone, ssh, etc), both sendTimelapse & sendPreview will
+                    // drop frames to reduce buffering/latency, and in the case of sendPreview will also lower JPEG quality
+                    // This mechanism is also unsuitable for /preview/ as the latency is very high 
                     const fps = Number(qs.get('fps') || 5);
                     let ffmpeg = (0, child_process_1.spawn)('ffmpeg', `-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v 2M -zerocopy 1 -r ${fps} -`.split(' '));
                     res.writeHead(200, {
@@ -155,18 +162,18 @@ async function handleHttpRequest(req, res) {
                     });
                     ffmpeg.stdout.pipe(res);
                     ffmpeg.stderr.pipe(process.stdout);
+                    ffmpeg.once('close', () => ffmpeg = undefined);
                     res.once('close', () => ffmpeg?.kill('SIGINT'));
-                    await streamTimelapse(ffmpeg, ffmpeg.stdin, {
+                    streamTimelapse(ffmpeg, ffmpeg.stdin, {
                         fast: true,
                         fps,
                         since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
                         speed: Number(qs.get('speed') || config.timelapse.speed)
                     });
-                    ffmpeg = undefined;
                 }
                 else {
                     sendMJPEGHeaders(res);
-                    await streamTimelapse(req, res, {
+                    streamTimelapse(req, res, {
                         fps: Number(qs.get('fps') || config.camera.fps),
                         since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
                         speed: Number(qs.get('speed') || config.timelapse.speed)
@@ -182,9 +189,10 @@ async function handleHttpRequest(req, res) {
             case '/preview':
             case '/preview/':
                 sendMJPEGHeaders(res);
-                await streamPreview(req, res);
+                streamPreview(req, res);
                 return;
         }
+        // Static resources
         if (!req.url || req.url.indexOf('..') >= 0)
             throw new Error('Not found');
         if (req.url.endsWith('/'))
@@ -233,7 +241,7 @@ function sendFrame(res, frameData) {
     res.write(frameData);
     res.end();
 }
-async function streamPreview(req, res) {
+async function streamPreview(req, res, fps = config.camera.fps) {
     let frameSent = true;
     let prevFrameSent = true;
     const previewFrame = async (frameData) => {
@@ -241,14 +249,14 @@ async function streamPreview(req, res) {
             if (!frameSent && prevFrameSent) {
                 previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality - 1) * 0.9);
                 if (pi_camera_native_ts_1.default.running) {
-                    await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality }));
+                    await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality, fps }));
                 }
                 return;
             }
             if (frameSent) {
                 previewQuality += 0.125; // Takes effect after 8 frames
                 if (pi_camera_native_ts_1.default.running) {
-                    await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality }));
+                    await pi_camera_native_ts_1.default.setConfig(cameraConfig({ quality: previewQuality, fps }));
                 }
             }
         }
@@ -272,7 +280,7 @@ async function streamPreview(req, res) {
         previewFrame(pi_camera_native_ts_1.default.lastFrame);
     pi_camera_native_ts_1.default.on('frame', previewFrame);
     if (pi_camera_native_ts_1.default.listenerCount('frame') === 1)
-        await pi_camera_native_ts_1.default.start(cameraConfig({ quality: previewQuality }));
+        await pi_camera_native_ts_1.default.start(cameraConfig({ quality: previewQuality, fps }));
     req.once('close', async () => {
         res.end();
         pi_camera_native_ts_1.default.removeListener('frame', previewFrame);
