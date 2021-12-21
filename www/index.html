@@ -146,7 +146,7 @@
     const fps = +document.getElementById('fps').value;
     const at = +document.getElementById('at').value;
     return "/timelapse/?since=" + at * 1000
-      + "&compress"
+      + "&compress=4M"
       + "&speed=" + (units * speed)
       + "&fps=" + fps
   }

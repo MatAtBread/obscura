@@ -179,7 +179,8 @@ async function handleHttpRequest(req, res) {
                     // drop frames to reduce buffering/latency, and in the case of sendPreview will also lower JPEG quality
                     // This mechanism is also unsuitable for /preview/ as the latency is very high 
                     const fps = Number(qs.has('fps') && qs.get('fps') || 5);
-                    let ffmpeg = (0, child_process_1.spawn)('ffmpeg', `-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v 2M -zerocopy 1 -r ${fps} -`.split(' '));
+                    const bitrate = qs.get('compress') || "2M";
+                    let ffmpeg = (0, child_process_1.spawn)('ffmpeg', `-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${fps} -`.split(' '));
                     res.writeHead(200, {
                         Connection: 'close',
                         'Content-Type': 'video/x-matroska'
