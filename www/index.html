@@ -1,4 +1,9 @@
 <html>
+
+<head>
+  <link rel="stylesheet" href="./MultiRangeSlider.css" />
+  <script src="MultiRangeSlider.js"></script>
+</head>
 <style>
   body {
     margin: 0;
@@ -43,7 +48,7 @@
     width: min-content;
   }
 
-  #menu > icon {
+  #menu>icon {
     opacity: 0.5;
   }
 
@@ -83,6 +88,11 @@
     color: inherit;
     text-decoration: inherit;
   }
+
+  .multi-range-slider {
+    border: none;
+    box-shadow: none;
+  }
 </style>
 
 <body>
@@ -91,7 +101,6 @@
     <icon id="/preview/" onclick="setPreviewSrc(this.id)">&#128250;</icon>
     <icon id="/lastframe/" onclick="setPreviewSrc(this.id)">&#9209;</icon>
     <icon id="/timelapse/" onclick="showTimelapse(false)">&#9193;</icon>
-    <!--icon id="/timelapse/?reverse=1" onclick="showTimelapse(true)">&#9194;</icon-->
     <a href="/photo/" download="obscura.jpg">
       <icon>&#128247;</icon>
     </a>
@@ -100,7 +109,7 @@
     <img id="preview" src="/lastframe">
   </div>
   <div id="more" style="display: none;">
-    <input id="at" type='range' step=60 style="width: 100%; display: block;">
+    <div id="at" style="width: 100%; display: block; height: 0.6em;"></div>
     <div id="when" style='text-align: center;'></div>
     <div>
       Speed: <input id="speed" type='number' style='width: 3em'>
@@ -116,7 +125,9 @@
       <icon onclick="changeSettings('hmirror')">&#128257;</icon>
       <icon onclick="changeSettings('vmirror')">&#128259;</icon>
       <icon onclick="changeSettings('landscape')">&#128256;</icon>
-      <a onclick="this.href=downloadVideo()" download="timelapse.mkv"><icon>&#128190;</icon></a>
+      <a onclick="this.href=downloadVideo()" download="timelapse.mkv">
+        <icon>&#128190;</icon>
+      </a>
     </div>
   </div>
 </body>
@@ -144,8 +155,10 @@
     const units = +document.getElementById('units').value;
     const speed = +document.getElementById('speed').value;
     const fps = +document.getElementById('fps').value;
-    const at = +document.getElementById('at').value;
-    return "/timelapse/?since=" + at * 1000
+    const start = +slider.value_min;
+    const end = +slider.value_max;
+    return "/timelapse/?start=" + start * 1000
+      + "&end=" + end * 1000,
       + "&compress=4M"
       + "&speed=" + (units * speed)
       + "&fps=" + fps
@@ -156,10 +169,11 @@
     const units = +document.getElementById('units').value;
     const speed = +document.getElementById('speed').value;
     const fps = +document.getElementById('fps').value;
-    const at = +document.getElementById('at').value;
-    const when = document.getElementById('when');
+    const start = +slider.value_min;
+    const end = +slider.value_max;
     const preview = document.getElementById('preview');
-    setPreviewSrc("/timelapse/?since=" + at * 1000
+    setPreviewSrc("/timelapse/?start=" + start * 1000
+      + "&end=" + end * 1000,
       + "&speed=" + (units * speed * (f ? -1 : 1))
       + "&fps=" + fps)
   }
@@ -176,32 +190,47 @@
     else
       units.value = 86400;
     speed.value = info.config.timelapse.speed / units.value;
-    at.min = info.startFrame;
-    at.max = at.max = Math.floor(Date.now() / 1000);
+
+    //document.querySelector('#at').firstElementChild?.remove();
+    const now = Math.floor(Date.now() / 1000);
+    slider.max = now;
+    slider.min = info.startFrame;
   }
+
   async function toggleMore(flag) {
+
     const e = document.getElementById("more");
-    const at = e.children.at;
     if (flag === false || !e.style.display) {
       e.style.display = "none";
-      at.oninput = null;
+      slider.removeEventListener('slide', updatePreview);
     } else {
       e.style.display = "";
       await initMoreInfo();
-      function updatePreview() {
-        const when = new Date(at.value * 1000);
-        const preview = document.getElementById("preview");
-
-        if (!preview.isLoading) {
-          setPreviewSrc("/at.jpg?t=" + when.getTime());
-          e.children.when.textContent = when.toString().substring(0, 25);
-        }
-      }
-      at.oninput = updatePreview;
-      updatePreview();
+      slider.addEventListener('slide', updatePreview);
+      updatePreview(slider);
     }
   }
-  initMoreInfo();
+  function updatePreview(e) {
+    const value = e[e.field];
+    const preview = document.getElementById("preview");
+    if (value && !preview.isLoading) {
+
+      setPreviewSrc("/at.jpg?t=" + value*1000);
+    }
+    const start = new Date(e.value_min * 1000);
+    const end = new Date(e.value_max * 1000);
+    document.getElementById("when").textContent = start.toString().substring(4, 21)+"-"+end.toString().substring(4, 21);
+  }
+
+  const slider = new MultiRangeSlider({
+    container: document.querySelector('#at'),
+    id: 'range',
+    showRuler: false,
+    showValue: false,
+    showLabel: false,
+    step: 60
+  });
+  initMoreInfo().then(() => slider.value_max = slider.max);
 </script>
 
 </html>
