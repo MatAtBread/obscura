@@ -35,10 +35,11 @@ function redeploy(res) {
     const p = (0, child_process_1.exec)('npm run deploy', async (error, stdout, stderr) => {
         await (0, helpers_1.write)(res, stdout + '\n\n');
         if (error) {
-            await (0, helpers_1.write)(res, error.message + '\n\n' + stderr);
+            await (0, helpers_1.write)(res, "ERROR:" + error.message + '\n\n' + stderr);
             res.end();
         }
         else {
+            await (0, helpers_1.write)(res, "Restarting....");
             res.end();
             (0, child_process_1.exec)('pm2 restart obscura');
         }
