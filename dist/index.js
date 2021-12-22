@@ -170,6 +170,12 @@ async function handleHttpRequest(req, res) {
                 return;
             case '/timelapse':
             case '/timelapse/':
+                const opts = {
+                    fps: Number(qs.get('fps') || config.camera.fps),
+                    start: new Date(Number(qs.get('start') || 0)),
+                    end: new Date(Number(qs.get('end') || Date.now())),
+                    speed: Number(qs.get('speed') || config.timelapse.speed)
+                };
                 if (qs.has("compress")) {
                     // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support, so
                     // although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame rate
@@ -189,20 +195,11 @@ async function handleHttpRequest(req, res) {
                     ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg", e));
                     ffmpeg.once('close', () => ffmpeg = undefined);
                     res.once('close', () => ffmpeg?.kill('SIGINT'));
-                    await streamTimelapse(ffmpeg, ffmpeg.stdin, {
-                        fast: true,
-                        fps,
-                        since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
-                        speed: Number(qs.get('speed') || config.timelapse.speed)
-                    });
+                    await streamTimelapse(ffmpeg, ffmpeg.stdin, { ...opts, fast: true, fps });
                 }
                 else {
                     sendMJPEGHeaders(res);
-                    await streamTimelapse(req, res, {
-                        fps: Number(qs.get('fps') || config.camera.fps),
-                        since: qs.has('since') ? new Date(Number(qs.get('since') || 0)) : undefined,
-                        speed: Number(qs.get('speed') || config.timelapse.speed)
-                    });
+                    await streamTimelapse(req, res, opts);
                 }
                 return;
             case '/lastframe':
@@ -315,17 +312,28 @@ async function streamPreview(req, res, fps = config.camera.fps) {
         }
     });
 }
-async function streamTimelapse(req, res, { fps, speed, since, fast }) {
+async function streamTimelapse(req, res, { fps, speed, start, end, fast }) {
     let closed = false;
     req.once('close', () => closed = true);
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
     else {
-        let frameIndex = (0, binary_search_1.default)(timeIndex, (since ? since.getTime() / 1000 : 0), (t, n) => t.time - n);
+        let frameIndex = (0, binary_search_1.default)(timeIndex, (start.getTime() / 1000), (t, n) => t.time - n);
         if (frameIndex < 0)
             frameIndex = ~frameIndex;
+        let finalIndex = (0, binary_search_1.default)(timeIndex, (end.getTime() / 1000), (t, n) => t.time - n);
+        if (finalIndex < 0)
+            finalIndex = ~finalIndex;
         while (!closed) {
+            async function sendFinalFrame() {
+                if (nextFrameIndex >= timeIndex.length) {
+                    const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
+                    res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
+                    res.write(finalFrame);
+                }
+                res.end();
+            }
             let time = (Date.now() / 1000);
             // Send a frame to the client
             const frame = timeIndex[frameIndex];
@@ -341,26 +349,16 @@ async function streamTimelapse(req, res, { fps, speed, since, fast }) {
             if (nextFrameIndex === frameIndex)
                 nextFrameIndex += 1;
             // Check we've not run out of frames
-            if (nextFrameIndex >= timeIndex.length) {
-                const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
-                res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
-                res.write(finalFrame);
-                res.end();
-                return;
-            }
+            if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
+                return sendFinalFrame();
             if (!fast) {
                 // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
                 const deviation = (Date.now() / 1000 - time);
                 let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 while (d < deviation && !closed) {
                     nextFrameIndex += 1;
-                    if (nextFrameIndex >= timeIndex.length) {
-                        const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
-                        res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
-                        res.write(finalFrame);
-                        res.end();
-                        return;
-                    }
+                    if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
+                        return sendFinalFrame();
                     d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
                 }
                 await (0, helpers_1.sleep)(d - deviation);

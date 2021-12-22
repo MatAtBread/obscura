@@ -35,9 +35,10 @@ export function redeploy(res: Writable) {
   const p = exec('npm run deploy', async (error, stdout, stderr) => {
     await write(res, stdout + '\n\n');
     if (error) {
-      await write(res, error.message + '\n\n' + stderr);
+      await write(res, "ERROR:" + error.message + '\n\n' + stderr);
       res.end();
     } else {
+      await write(res, "Restarting....");
       res.end();
       exec('pm2 restart obscura');
     }
