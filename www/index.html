@@ -173,7 +173,7 @@
     const end = +slider.value_max;
     const preview = document.getElementById('preview');
     setPreviewSrc("/timelapse/?start=" + start * 1000
-      + "&end=" + end * 1000,
+      + "&end=" + end * 1000
       + "&speed=" + (units * speed * (f ? -1 : 1))
       + "&fps=" + fps)
   }
