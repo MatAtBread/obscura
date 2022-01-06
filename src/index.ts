@@ -145,27 +145,26 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/admin/prune':
       case '/admin/prune/':
         const interval = Number(qs.has('interval') && qs.get('interval'));
+        const until = Math.floor((qs.has('until') ? new Date(qs.get('interval') || Date.now()).getTime() : Date.now()) / 1000);
         if (!interval || interval < config.timelapse.intervalSeconds)
           throw new Error("Invalid interval parameter");
 
-        let removed = 0;
-        let preserved = 0;
+        let removed = [] as string[];
         let lastTime = 0;
         const tNew: TimeIndex[] = [];
         for (const t of timeIndex) {
-          if (t.time - lastTime < interval) {
-            removed += 1;
-            await unlink(timelapseDir + t.name);
+          if (t.time < until && t.time - lastTime < interval) {
+            removed.push(timelapseDir + t.name);
           } else {
-            preserved += 1;
             tNew.push(t);
             lastTime = t.time;
           }
         }
         timeIndex = tNew;
         // We do a sync write to ensure the file can't be appended to in mid-write
-        writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
-        sendInfo(res, { preserved, removed });
+        writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+        sendInfo(res, { preserved: tNew.length, removed: removed.length });
+        await Promise.all(removed.map(p => unlink(p)));
         return;
 
       case '/photo':
