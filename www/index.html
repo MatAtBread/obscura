@@ -198,15 +198,16 @@
   }
 
   async function toggleMore(flag) {
-
     const e = document.getElementById("more");
     if (flag === false || !e.style.display) {
       e.style.display = "none";
-      slider.removeEventListener('slide', updatePreview);
+      //slider.removeEventListener('slide', updatePreview);
+      slider.removeEventListener('input', updatePreview);
     } else {
       e.style.display = "";
       await initMoreInfo();
-      slider.addEventListener('slide', updatePreview);
+      //slider.addEventListener('slide', updatePreview);
+      slider.addEventListener('input', updatePreview);
       updatePreview(slider);
     }
   }
@@ -214,7 +215,6 @@
     const value = e[e.field];
     const preview = document.getElementById("preview");
     if (value && !preview.isLoading) {
-
       setPreviewSrc("/at.jpg?t=" + value*1000);
     }
     const start = new Date(e.value_min * 1000);

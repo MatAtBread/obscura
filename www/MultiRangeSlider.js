@@ -63,7 +63,7 @@ const MultiRangeSlider = function (options) {
 		input_range_min.addEventListener('input', function (e) {
 			e.stopPropagation();
 			_multiRangeSlider.value_min = this.value;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: bar.bar_left });
 		});
 		input_range_min.addEventListener('change', function (e) {
 			e.stopPropagation();
@@ -109,7 +109,7 @@ const MultiRangeSlider = function (options) {
 		input_range_max.addEventListener('input', function (e) {
 			e.stopPropagation();
 			_multiRangeSlider.value_max = this.value;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: bar.bar_right });
 		});
 		input_range_max.addEventListener('change', function (e) {
 			e.stopPropagation();
@@ -175,19 +175,19 @@ const MultiRangeSlider = function (options) {
 		if (target === _multiRangeSlider.bar.bar_left) {
 			_multiRangeSlider.value_min = _value_min - _step;
 			_curThumb = _multiRangeSlider.bar.thumb_left;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: _curThumb });
 		} else if (target === _multiRangeSlider.bar.bar_right) {
 			_multiRangeSlider.value_max = _value_max + _step;
 			_curThumb = _multiRangeSlider.bar.thumb_right;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: _curThumb });
 		} else if (target === _multiRangeSlider.bar.bar_inner_left) {
 			_multiRangeSlider.value_min = _value_min + _step;
 			_curThumb = _multiRangeSlider.bar.thumb_left;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: _curThumb });
 		} else if (target === _multiRangeSlider.bar.bar_inner_right) {
 			_multiRangeSlider.value_max = _value_max - _step;
 			_curThumb = _multiRangeSlider.bar.thumb_right;
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: _curThumb });
 		}
 		dispatchEvents('barclick', e, MouseEvent);
 		dispatchEvents('slide', { slider: _curThumb });
@@ -222,7 +222,7 @@ const MultiRangeSlider = function (options) {
 			_multiRangeSlider.value_min = _value_min + val;
 			_curThumb = _multiRangeSlider.bar.thumb_left;
 		}
-		dispatchEvents('input');
+		dispatchEvents('input', { slider: _curThumb });
 		if (_wheelTimer) {
 			window.clearTimeout(_wheelTimer);
 		} else {
@@ -284,7 +284,7 @@ const MultiRangeSlider = function (options) {
 			} else {
 				_multiRangeSlider.value_max = val;
 			}
-			dispatchEvents('input');
+			dispatchEvents('input', { slider: _curThumb });
 			dispatchEvents('slide', { slider: _curThumb });
 		}
 	};
@@ -316,7 +316,11 @@ const MultiRangeSlider = function (options) {
 		evt.value2 = _value_max;
 		if (e?.slider) {
 			evt.slider = e.slider;
-			evt.field = _multiRangeSlider.bar.thumb_left.contains(e.slider) ? 'value_min' : (_multiRangeSlider.bar.thumb_right.contains(e.slider) ? 'value_max' : undefined);
+			evt.field = _multiRangeSlider.bar.thumb_left.contains(e.slider)  || _multiRangeSlider.bar.bar_left.contains(e.slider) 
+				? 'value_min'
+				: _multiRangeSlider.bar.thumb_right.contains(e.slider) || _multiRangeSlider.bar.bar_right.contains(e.slider) 
+					? 'value_max' 
+					: undefined;
 		};
 		_multiRangeSlider.dispatchEvent(evt);
 	};
