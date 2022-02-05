@@ -194,14 +194,19 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const fps = Number(qs.has('fps') && qs.get('fps') || 5);
           const bitrate = qs.get('compress') || "2M";
           let ffmpeg:ChildProcessWithoutNullStreams|undefined = spawn('ffmpeg',`-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${fps} -`.split(' '))
+          ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg: ",e));
+
           res.writeHead(200, {
             Connection: 'close',
             'Content-Type': 'video/x-matroska'
           });
-          ffmpeg.stdout.pipe(res);
-          ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg",e));
-          ffmpeg.once('close', () => ffmpeg = undefined);
-          res.once('close', ()=> ffmpeg?.kill('SIGINT'));
+
+          const killFfmpeg = (e: unknown) => { try { if (e) console.log('killFfmeg: ',e); ffmpeg?.kill('SIGINT'); } catch (ex) {}; ffmpeg = undefined; };
+          res.once('error', killFfmpeg);
+          res.once('close', killFfmpeg);
+
+          ffmpeg.stdout.pipe(res).on('error', killFfmpeg);
+          ffmpeg.once('close', killFfmpeg);
           await streamTimelapse(ffmpeg, ffmpeg.stdin, { ...opts,  fast: true, fps });
         } else {
           sendMJPEGHeaders(res);
@@ -334,6 +339,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number = con
 async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, start, end, fast }: { fps: number; speed: number; start: Date, end: Date, fast?: true }) {
   let closed = false;
   req.once('close', () => closed = true);
+  req.once('error', () => closed = true);
   if (speed < 0) {
     throw new Error("Not yet implemented");
   } else {
@@ -358,10 +364,9 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
 
       // Send a frame to the client
       const frame = timeIndex[frameIndex];
+      //console.log("Timelapse frame:", frameIndex, new Date(frame.time * 1000).toISOString());
       res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-      const flushed = write(res, await readFile(timelapseDir + frame.name));
-      if (!fast)
-        await flushed;
+      await write(res, await readFile(timelapseDir + frame.name));
 
       // Having written the first frame, we'll want to send another one in T+1/fps in real time.
       // which is T+speed/fps in timelapse time. 
