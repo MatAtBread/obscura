@@ -343,7 +343,7 @@ async function streamTimelapse(req, res, { fps, speed, start, end, fast }) {
             }
             let time = (Date.now() / 1000);
             // Send a frame to the client
-            const frame = timeIndex[frameIndex];
+            let frame = timeIndex[frameIndex];
             //console.log("Timelapse frame:", frameIndex, new Date(frame.time * 1000).toISOString());
             res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
             await (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
@@ -354,9 +354,15 @@ async function streamTimelapse(req, res, { fps, speed, start, end, fast }) {
                 nextFrameIndex = ~nextFrameIndex;
             if (nextFrameIndex === frameIndex)
                 nextFrameIndex += 1;
-            // Check we've not run out of frames
-            if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
-                return sendFinalFrame();
+            // Check we've if run out of frames, and skip over "blank" frames (like night time)
+            while (true) {
+                if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
+                    return sendFinalFrame();
+                if (timeIndex[nextFrameIndex].size > 60000)
+                    break;
+                frame = timeIndex[nextFrameIndex];
+                nextFrameIndex += 1;
+            }
             if (!fast) {
                 // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
                 const deviation = (Date.now() / 1000 - time);
