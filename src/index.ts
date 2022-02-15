@@ -79,6 +79,7 @@ const wwwStatic = serveStatic(path.join(__dirname, '../www'), {
 
 // Other singleton variables
 let previewQuality = config.camera.quality;  // Dynamically modified quality
+let previewFrameSize = 0;
 let timeIndex: Array<TimeIndex> = [];
 
 async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
@@ -253,6 +254,7 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
   res.setHeader("Content-type", "application/json");
   res.write(JSON.stringify({
     previewQuality,
+    previewFrameSize,
     totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
     countFrames: timeIndex.length,
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
@@ -311,6 +313,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
 
     try {
       frameSent = false;
+      previewFrameSize = (previewFrameSize + frameData.length) >> 1; 
       res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
       await write(res, frameData);
       frameSent = true
@@ -343,6 +346,8 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
   if (speed < 0) {
     throw new Error("Not yet implemented");
   } else {
+    const numFrames = Math.min(timeIndex.length, 240);
+    const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a,t) => a + t.size,0) / numFrames : 0;
     let frameIndex = binarySearch(timeIndex, (start.getTime() / 1000) as TimeStamp, (t, n) => t.time - n);
     if (frameIndex < 0)
       frameIndex = ~frameIndex;
@@ -380,7 +385,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
       while (true) {
         if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
           return sendFinalFrame();
-        if (timeIndex[nextFrameIndex].size > 48 * 1024)
+        if (timeIndex[nextFrameIndex].size > avgFrameSize / 6)
           break;
         frame = timeIndex[nextFrameIndex];
         nextFrameIndex += 1;

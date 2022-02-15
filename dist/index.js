@@ -85,6 +85,7 @@ const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..
 });
 // Other singleton variables
 let previewQuality = config.camera.quality; // Dynamically modified quality
+let previewFrameSize = 0;
 let timeIndex = [];
 async function handleHttpRequest(req, res) {
     try {
@@ -243,6 +244,7 @@ function sendInfo(res, moreInfo) {
     res.setHeader("Content-type", "application/json");
     res.write(JSON.stringify({
         previewQuality,
+        previewFrameSize,
         totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
         countFrames: timeIndex.length,
         startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
@@ -297,6 +299,7 @@ async function streamPreview(req, res, fps) {
         }
         try {
             frameSent = false;
+            previewFrameSize = (previewFrameSize + frameData.length) >> 1;
             res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
             await (0, helpers_1.write)(res, frameData);
             frameSent = true;
@@ -326,6 +329,8 @@ async function streamTimelapse(req, res, { fps, speed, start, end, fast }) {
         throw new Error("Not yet implemented");
     }
     else {
+        const numFrames = Math.min(timeIndex.length, 240);
+        const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
         let frameIndex = (0, binary_search_1.default)(timeIndex, (start.getTime() / 1000), (t, n) => t.time - n);
         if (frameIndex < 0)
             frameIndex = ~frameIndex;
@@ -358,7 +363,7 @@ async function streamTimelapse(req, res, { fps, speed, start, end, fast }) {
             while (true) {
                 if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
                     return sendFinalFrame();
-                if (timeIndex[nextFrameIndex].size > 48 * 1024)
+                if (timeIndex[nextFrameIndex].size > avgFrameSize / 6)
                     break;
                 frame = timeIndex[nextFrameIndex];
                 nextFrameIndex += 1;
