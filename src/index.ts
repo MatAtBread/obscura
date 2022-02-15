@@ -43,9 +43,9 @@ try {
     version: 1,
     landscape: true,
     camera:{
-      width: 1920,
-      height: 1080,
-      fps: 20,
+      width: 2592,
+      height: 1944,
+      fps: 15,
       encoding: 'JPEG',
       quality: DEFAULT_QUALITY,
       rotation: 0,
@@ -54,7 +54,7 @@ try {
     timelapse: {
       quality: DEFAULT_QUALITY,   // Quality of timelapse images
       speed: 14400,               // Default: 4 hours -> 1 second
-      intervalSeconds: 300        // Record one frame every 5 minutes (value in seconds)  
+      intervalSeconds: 600        // Record one frame every 5 minutes (value in seconds)  
     }
   } 
 }
@@ -184,7 +184,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         if (qs.has("compress")) {
           // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support, so
           // although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame rate
-          // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well with the WiFi bandwidth of the
+          // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well within the WiFi bandwidth of the
           // Pi Zero 2.
 
           // In any case (for example over a mobile phone, ssh, etc), both sendTimelapse & sendPreview will
@@ -283,7 +283,7 @@ function sendFrame(res: ServerResponse, frameData: Buffer) {
   res.end();
 }
 
-async function streamPreview(req: EventEmitter, res: Writable, fps: number = config.camera.fps) {
+async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
   let frameSent = true;
   let prevFrameSent = true;
   const previewFrame = async (frameData: Buffer) => {
