@@ -385,7 +385,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
       while (true) {
         if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
           return sendFinalFrame();
-        if (timeIndex[nextFrameIndex].size > avgFrameSize / 6)
+        if (timeIndex[nextFrameIndex].size > avgFrameSize / 3)
           break;
         frame = timeIndex[nextFrameIndex];
         nextFrameIndex += 1;

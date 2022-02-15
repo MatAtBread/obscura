@@ -1,3 +1,5 @@
 node_modules/
 www/timelapse/*
 config/*
+._.DS_Store
+.DS_Store
