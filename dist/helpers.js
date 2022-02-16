@@ -8,6 +8,13 @@ function sleep(seconds) {
 }
 exports.sleep = sleep;
 function write(res, data) {
-    return new Promise(resolve => res.write(data, resolve));
+    return new Promise((resolve, reject) => {
+        try {
+            return res.write(data, resolve);
+        }
+        catch (ex) {
+            reject(ex);
+        }
+    });
 }
 exports.write = write;

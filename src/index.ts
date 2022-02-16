@@ -3,7 +3,7 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
 import { writeFile, readFile, mkdir, appendFile, unlink } from 'fs/promises';
-import { readFileSync, writeFileSync } from 'fs';
+import { createReadStream, readFileSync, ReadStream, writeFileSync } from 'fs';
 import path from 'path';
 
 import serveStatic from 'serve-static';
@@ -21,7 +21,7 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
 
-let config : {
+let config: {
   version: 1,
   landscape: boolean,
   camera: CameraOptions,
@@ -42,7 +42,7 @@ try {
   config = {
     version: 1,
     landscape: true,
-    camera:{
+    camera: {
       width: 2592,
       height: 1944,
       fps: 15,
@@ -56,12 +56,12 @@ try {
       speed: 14400,               // Default: 4 hours -> 1 second
       intervalSeconds: 600        // Record one frame every 5 minutes (value in seconds)  
     }
-  } 
+  }
 }
 
 // Configurable constants
 function cameraConfig(overrides: Partial<CameraOptions> = {}) {
-  const r = {...config.camera, ...overrides};
+  const r = { ...config.camera, ...overrides };
   if (!config.landscape) {
     const swap = r.width;
     r.width = r.height;
@@ -117,7 +117,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         if (frameIndex < 0)
           frameIndex = ~frameIndex;
         if (frameIndex >= timeIndex.length)
-          frameIndex = timeIndex.length-1;
+          frameIndex = timeIndex.length - 1;
 
         res.setHeader("Location", `/timelapse/${timeIndex[frameIndex].name}`);
         res.writeHead(302);
@@ -188,30 +188,55 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           // is so reduced that MJPEG takes up approx 7-8Mb/s, which is well within the WiFi bandwidth of the
           // Pi Zero 2.
 
-          // In any case (for example over a mobile phone, ssh, etc), both sendTimelapse & sendPreview will
-          // drop frames to reduce buffering/latency, and in the case of sendPreview will also lower JPEG quality
-          
+          // In any case (for example over a mobile phone, ssh, etc), both streamTimelapse & streamPreview will
+          // drop frames to reduce buffering/latency, and in the case of streamPreview will also lower JPEG quality
+
           // This mechanism is also unsuitable for /preview/ as the latency is very high 
-          const fps = Number(qs.has('fps') && qs.get('fps') || 5);
           const bitrate = qs.get('compress') || "2M";
-          let ffmpeg:ChildProcessWithoutNullStreams|undefined = spawn('ffmpeg',`-f mjpeg -r ${fps} -i - -f matroska -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${fps} -`.split(' '))
-          ffmpeg.stderr.on('data', d => null).on('error', e => console.warn("ffmpeg: ",e));
+          const {width,height} = cameraConfig();
+          const scale = Math.max(width / 1920, height / 1080);
+          const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
+          //console.log('ffmpeg ' + args);
+          let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
+          ffmpeg.stderr.on('data', d => null);
 
-          res.writeHead(200, {
-            Connection: 'close',
-            'Content-Type': 'video/x-matroska'
-          });
+          const killFfmpeg = (reason: string) => (e?: unknown) => {
+            debugger;
+            try {
+              if (e) console.log('killFfmeg: ', reason, e);
+              ffmpeg?.kill('SIGTERM');
+            } catch (ex) { };
+            ffmpeg = undefined;
+          };
 
-          const killFfmpeg = (e: unknown) => { try { if (e) console.log('killFfmeg: ',e); ffmpeg?.kill('SIGINT'); } catch (ex) {}; ffmpeg = undefined; };
-          res.once('error', killFfmpeg);
-          res.once('close', killFfmpeg);
+          // If the client dies, about ffmpeg, which will unwind sendTimelapse()
+          res.once('error', killFfmpeg("res error"));
+          //res.once('close', killFfmpeg("res close"));
+          // Pipe the output of ffmpeg to the client
+          ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
+          //ffmpeg.once('close', killFfmpeg("ffmpeg close"));
 
-          ffmpeg.stdout.pipe(res).on('error', killFfmpeg);
-          ffmpeg.once('close', killFfmpeg);
-          await streamTimelapse(ffmpeg, ffmpeg.stdin, { ...opts,  fast: true, fps });
+          try {
+            res.writeHead(200, {
+              Connection: 'close',
+              'Content-Type': 'video/x-matroska'
+            });
+            // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
+            await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
+          } catch (ex) {
+            console.warn(req.url,ex);
+            throw ex;
+          } finally {
+            res.end();
+            killFfmpeg("Complete")();
+          }
         } else {
-          sendMJPEGHeaders(res);
-          await streamTimelapse(req, res, opts);
+          try {
+            sendMJPEGHeaders(res);
+            await streamTimelapse(req, res, opts);
+          } finally {
+            res.end();
+          }
         }
         return;
 
@@ -242,7 +267,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       res.end();
     });
   } catch (ex: any) {
-    console.warn("Request",req.url,ex);
+    console.warn("Request", req.url, ex);
     res.statusCode = 500;
     if (ex)
       res.write('message' in ex ? ex.message : ex.toString());
@@ -260,7 +285,7 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
     config,
     moreInfo
-  },null,2));
+  }, null, 2));
   res.end();
 }
 
@@ -291,7 +316,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
   const previewFrame = async (frameData: Buffer) => {
     try {
       if (!frameSent && prevFrameSent) {
-        previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality-1) * 0.9);
+        previewQuality = Math.max(MINIMUM_QUALITY, (previewQuality - 1) * 0.9);
         if (camera.running) {
           await camera.setConfig(cameraConfig({ quality: previewQuality, fps }));
         }
@@ -313,7 +338,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
 
     try {
       frameSent = false;
-      previewFrameSize = (previewFrameSize + frameData.length) >> 1; 
+      previewFrameSize = (previewFrameSize + frameData.length) >> 1;
       res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${frameData.length}\n\n`);
       await write(res, frameData);
       frameSent = true
@@ -339,7 +364,50 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
   });
 }
 
-async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, start, end, fast }: { fps: number; speed: number; start: Date, end: Date, fast?: true }) {
+/* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
+  duplicating or skipping frames if necessary to maintain the requested frame-rate */
+async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
+  let closed = false;
+  function close(_e: unknown) {
+    debugger;
+    closed = true;
+  }
+  req.once('close', close);
+  req.once('error', close);
+  if (speed < 0) {
+    throw new Error("Not yet implemented");
+  } else {
+    const numFrames = Math.min(timeIndex.length, 240);
+    const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
+
+    for (let tFrame = start.getTime() / 1000; tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
+      let frameIndex = binarySearch(timeIndex, tFrame as TimeStamp, (t, n) => t.time - n);
+      if (frameIndex < 0)
+        frameIndex = ~frameIndex;
+      if (closed)
+        break;
+
+      const frame = timeIndex[frameIndex];
+      if (frame.size > avgFrameSize / 2.4) {
+        await write(mjpegStream, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
+        let file: ReadStream | undefined = undefined;
+        try {
+          file = createReadStream(timelapseDir + frame.name);
+          for await (const chunk of file) {
+            await write(mjpegStream, chunk)
+          }
+        } finally {
+          file?.close();
+        }
+      }
+    }
+  }
+}
+
+/* Stream images in real-time, which means taking account of the actual elapsed time to send an image
+  so the stream, as near as possible, tracks elapsed time. This never duplicates frames - we just wait
+  longer that the target frame rate if necessary to ensure the stream remains in sync */
+async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
   let closed = false;
   req.once('close', () => closed = true);
   req.once('error', () => closed = true);
@@ -347,7 +415,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
     throw new Error("Not yet implemented");
   } else {
     const numFrames = Math.min(timeIndex.length, 240);
-    const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a,t) => a + t.size,0) / numFrames : 0;
+    const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
     let frameIndex = binarySearch(timeIndex, (start.getTime() / 1000) as TimeStamp, (t, n) => t.time - n);
     if (frameIndex < 0)
       frameIndex = ~frameIndex;
@@ -356,7 +424,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
       finalIndex = ~finalIndex;
 
     while (!closed) {
-      async function sendFinalFrame(){
+      async function sendFinalFrame() {
         if (nextFrameIndex >= timeIndex.length) {
           const finalFrame = await readFile(timelapseDir + timeIndex[timeIndex.length - 1].name);
           res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
@@ -369,7 +437,6 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
 
       // Send a frame to the client
       let frame = timeIndex[frameIndex];
-      //console.log("Timelapse frame:", frameIndex, new Date(frame.time * 1000).toISOString());
       res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
       await write(res, await readFile(timelapseDir + frame.name));
 
@@ -385,24 +452,22 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
       while (true) {
         if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
           return sendFinalFrame();
-        if (timeIndex[nextFrameIndex].size > avgFrameSize / 3)
+        if (timeIndex[nextFrameIndex].size > avgFrameSize / 2.4)
           break;
         frame = timeIndex[nextFrameIndex];
         nextFrameIndex += 1;
       }
 
-      if (!fast) {
-        // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
-        const deviation = (Date.now() / 1000 - time);
-        let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
-        while (d < deviation && !closed) {
-          nextFrameIndex += 1;
-          if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
-            return sendFinalFrame();
-          d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
-        }
-        await sleep(d - deviation);
+      // Sleep until the actual time the next frame is due. If that's negative, skip extra frames until we can sleep
+      const deviation = (Date.now() / 1000 - time);
+      let d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
+      while (d < deviation && !closed) {
+        nextFrameIndex += 1;
+        if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
+          return sendFinalFrame();
+        d = (timeIndex[nextFrameIndex].time - frame.time) / speed;
       }
+      await sleep(d - deviation);
       frameIndex = nextFrameIndex;
     }
   }
@@ -417,7 +482,7 @@ async function takePhoto(quality = PHOTO_QUALITY): Promise<Buffer> {
     await camera.stop();
     return frameData;
   } else {
-    await camera.setConfig(cameraConfig({ quality}));
+    await camera.setConfig(cameraConfig({ quality }));
     await camera.nextFrame();
     const frameData = await camera.nextFrame();
     await camera.setConfig(cameraConfig({ quality: previewQuality }));

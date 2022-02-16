@@ -7,5 +7,11 @@ export function sleep(seconds: number) {
 }
 
 export function write(res: Writable, data: string | Buffer) {
-    return new Promise(resolve => res.write(data, resolve));
+    return new Promise((resolve,reject) => { 
+        try {
+            return res.write(data, resolve)
+        } catch(ex) {
+            reject(ex);
+        }
+    });
 }
