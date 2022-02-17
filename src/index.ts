@@ -226,8 +226,8 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             console.warn(req.url,ex);
             throw ex;
           } finally {
-            res.end();
-            killFfmpeg("Complete")();
+            ffmpeg.stdin.end();
+            //killFfmpeg("Complete")();
           }
         } else {
           try {

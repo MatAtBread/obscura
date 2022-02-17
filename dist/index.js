@@ -220,8 +220,8 @@ async function handleHttpRequest(req, res) {
                         throw ex;
                     }
                     finally {
-                        res.end();
-                        killFfmpeg("Complete")();
+                        ffmpeg.stdin.end();
+                        //killFfmpeg("Complete")();
                     }
                 }
                 else {
