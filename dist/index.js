@@ -192,7 +192,6 @@ async function handleHttpRequest(req, res) {
                     let ffmpeg = (0, child_process_1.spawn)('ffmpeg', args.split(' '));
                     ffmpeg.stderr.on('data', d => null);
                     const killFfmpeg = (reason) => (e) => {
-                        debugger;
                         try {
                             if (e)
                                 console.log('killFfmeg: ', reason, e);
@@ -351,8 +350,7 @@ async function streamPreview(req, res, fps) {
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
 async function sendTimelapse(req, mjpegStream, { fps, speed, start, end }) {
     let closed = false;
-    function close(_e) {
-        debugger;
+    function close() {
         closed = true;
     }
     req.once('close', close);
@@ -363,12 +361,12 @@ async function sendTimelapse(req, mjpegStream, { fps, speed, start, end }) {
     else {
         const numFrames = Math.min(timeIndex.length, 240);
         const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
-        for (let tFrame = start.getTime() / 1000; tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
+        for (let tFrame = start.getTime() / 1000; !closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
             let frameIndex = (0, binary_search_1.default)(timeIndex, tFrame, (t, n) => t.time - n);
             if (frameIndex < 0)
                 frameIndex = ~frameIndex;
-            if (closed)
-                break;
+            if (frameIndex >= timeIndex.length)
+                frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
             if (frame.size > avgFrameSize / 2.4) {
                 await (0, helpers_1.write)(mjpegStream, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);

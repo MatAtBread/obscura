@@ -201,7 +201,6 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           ffmpeg.stderr.on('data', d => null);
 
           const killFfmpeg = (reason: string) => (e?: unknown) => {
-            debugger;
             try {
               if (e) console.log('killFfmeg: ', reason, e);
               ffmpeg?.kill('SIGTERM');
@@ -368,8 +367,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
 async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
   let closed = false;
-  function close(_e: unknown) {
-    debugger;
+  function close() {
     closed = true;
   }
   req.once('close', close);
@@ -380,12 +378,12 @@ async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, sp
     const numFrames = Math.min(timeIndex.length, 240);
     const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
 
-    for (let tFrame = start.getTime() / 1000; tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
+    for (let tFrame = start.getTime() / 1000; !closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
       let frameIndex = binarySearch(timeIndex, tFrame as TimeStamp, (t, n) => t.time - n);
       if (frameIndex < 0)
         frameIndex = ~frameIndex;
-      if (closed)
-        break;
+      if (frameIndex >= timeIndex.length)
+        frameIndex = timeIndex.length-1;
 
       const frame = timeIndex[frameIndex];
       if (frame.size > avgFrameSize / 2.4) {
