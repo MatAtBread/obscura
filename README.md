@@ -5,6 +5,7 @@ Obscura is a simple node app that runs on a RaspberryPi (in my case, a Pi Zero 2
 ## Features
 * Auto-adjusts quality & frame-rate to suit network conditions.
 * Simple, embedded API for viewing live video, taking HQ photos and playing time-lapses
+* Export as H264 using GPU (requires ffmpeg is installed)
 
 ![required](https://github.com/MatAtBread/obscura/raw/master/screenshot.jpg)
 
