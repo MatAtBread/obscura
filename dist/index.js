@@ -267,9 +267,12 @@ async function handleHttpRequest(req, res) {
 }
 function sendInfo(res, moreInfo) {
     res.setHeader("Content-type", "application/json");
+    const numFrames = Math.min(timeIndex.length, 240);
+    const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
     res.write(JSON.stringify({
         previewQuality,
         previewFrameSize,
+        '24hrAvgFrameSize': avgFrameSize,
         totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
         countFrames: timeIndex.length,
         startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
@@ -368,7 +371,7 @@ async function sendTimelapse(req, mjpegStream, { fps, speed, start, end }) {
             if (frameIndex >= timeIndex.length)
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
-            if (frame.size > avgFrameSize / 2.4) {
+            if (frame.size > avgFrameSize / 2) {
                 await (0, helpers_1.write)(mjpegStream, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
                 let file = undefined;
                 try {
@@ -428,7 +431,7 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
             while (true) {
                 if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
                     return sendFinalFrame();
-                if (timeIndex[nextFrameIndex].size > avgFrameSize / 2.4)
+                if (timeIndex[nextFrameIndex].size > avgFrameSize / 2)
                     break;
                 frame = timeIndex[nextFrameIndex];
                 nextFrameIndex += 1;
