@@ -193,7 +193,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
           // This mechanism is also unsuitable for /preview/ as the latency is very high 
           const bitrate = qs.get('compress') || "2M";
-          const {width,height} = cameraConfig();
+          const { width, height } = cameraConfig();
           const scale = Math.max(width / 1920, height / 1080);
           const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
           //console.log('ffmpeg ' + args);
@@ -223,7 +223,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
             await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
           } catch (ex) {
-            console.warn(req.url,ex);
+            console.warn(req.url, ex);
             throw ex;
           } finally {
             ffmpeg.stdin.end();
@@ -386,7 +386,7 @@ async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, sp
       if (frameIndex < 0)
         frameIndex = ~frameIndex;
       if (frameIndex >= timeIndex.length)
-        frameIndex = timeIndex.length-1;
+        frameIndex = timeIndex.length - 1;
 
       const frame = timeIndex[frameIndex];
       if (frame.size > avgFrameSize / 2) {
