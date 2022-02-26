@@ -372,19 +372,22 @@ async function sendTimelapse(req, mjpegStream, { fps, speed, start, end }) {
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
             if (frame.size > avgFrameSize / 2) {
-                await (0, helpers_1.write)(mjpegStream, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-                let file = undefined;
-                try {
-                    file = (0, fs_1.createReadStream)(timelapseDir + frame.name);
-                    for await (const chunk of file) {
-                        await (0, helpers_1.write)(mjpegStream, chunk);
-                    }
-                }
-                finally {
-                    file?.close();
-                }
+                await streamFrame(frame, mjpegStream);
             }
         }
+    }
+}
+async function streamFrame(frame, dest) {
+    await (0, helpers_1.write)(dest, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
+    let file = undefined;
+    try {
+        file = (0, fs_1.createReadStream)(timelapseDir + frame.name);
+        for await (const chunk of file) {
+            await (0, helpers_1.write)(dest, chunk);
+        }
+    }
+    finally {
+        file?.close();
     }
 }
 /* Stream images in real-time, which means taking account of the actual elapsed time to send an image
@@ -409,17 +412,14 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
         while (!closed) {
             async function sendFinalFrame() {
                 if (nextFrameIndex >= timeIndex.length) {
-                    const finalFrame = await (0, promises_1.readFile)(timelapseDir + timeIndex[timeIndex.length - 1].name);
-                    res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
-                    res.write(finalFrame);
+                    await streamFrame(timeIndex[timeIndex.length - 1], res);
                 }
                 res.end();
             }
             let time = (Date.now() / 1000);
             // Send a frame to the client
             let frame = timeIndex[frameIndex];
-            res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-            await (0, helpers_1.write)(res, await (0, promises_1.readFile)(timelapseDir + frame.name));
+            await streamFrame(frame, res);
             // Having written the first frame, we'll want to send another one in T+1/fps in real time.
             // which is T+speed/fps in timelapse time. 
             let nextFrameIndex = (0, binary_search_1.default)(timeIndex, frame.time + speed / fps || 0, (t, n) => t.time - n);
