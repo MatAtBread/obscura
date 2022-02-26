@@ -11,6 +11,7 @@
         "target": "ES2021",
         "allowJs": true,
         "checkJs": true,
-        "strictNullChecks": true
+        "strictNullChecks": true,
+        "noUnusedLocals": true
     }
 }

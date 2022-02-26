@@ -2,7 +2,7 @@ import { EventEmitter, Writable } from 'stream';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { URL } from 'url';
-import { writeFile, readFile, mkdir, appendFile, unlink } from 'fs/promises';
+import { writeFile, mkdir, appendFile, unlink } from 'fs/promises';
 import { createReadStream, readFileSync, ReadStream, writeFileSync } from 'fs';
 import path from 'path';
 
@@ -390,18 +390,22 @@ async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, sp
 
       const frame = timeIndex[frameIndex];
       if (frame.size > avgFrameSize / 2) {
-        await write(mjpegStream, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-        let file: ReadStream | undefined = undefined;
-        try {
-          file = createReadStream(timelapseDir + frame.name);
-          for await (const chunk of file) {
-            await write(mjpegStream, chunk)
-          }
-        } finally {
-          file?.close();
-        }
+        await streamFrame(frame, mjpegStream);
       }
     }
+  }
+}
+
+async function streamFrame(frame: TimeIndex, dest: Writable) {
+  await write(dest, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
+  let file: ReadStream | undefined = undefined;
+  try {
+    file = createReadStream(timelapseDir + frame.name);
+    for await (const chunk of file) {
+      await write(dest, chunk);
+    }
+  } finally {
+    file?.close();
   }
 }
 
@@ -427,9 +431,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
     while (!closed) {
       async function sendFinalFrame() {
         if (nextFrameIndex >= timeIndex.length) {
-          const finalFrame = await readFile(timelapseDir + timeIndex[timeIndex.length - 1].name);
-          res.write(`--myboundary\nContent-Type: image/jpg\nContent-length: ${finalFrame.length}\n\n`);
-          res.write(finalFrame);
+          await streamFrame(timeIndex[timeIndex.length - 1], res);
         }
         res.end();
       }
@@ -438,8 +440,7 @@ async function streamTimelapse(req: EventEmitter, res: Writable, { fps, speed, s
 
       // Send a frame to the client
       let frame = timeIndex[frameIndex];
-      res.write(`--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
-      await write(res, await readFile(timelapseDir + frame.name));
+      await streamFrame(frame, res);
 
       // Having written the first frame, we'll want to send another one in T+1/fps in real time.
       // which is T+speed/fps in timelapse time. 
