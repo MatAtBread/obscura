@@ -1,6 +1,6 @@
 {
   "name": "pi-obscura",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Raspberry Pi timelapse camera",
   "main": "dist/index.js",
   "scripts": {

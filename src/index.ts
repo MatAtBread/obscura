@@ -196,13 +196,13 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const { width, height } = cameraConfig();
           const scale = Math.max(width / 1920, height / 1080);
           const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
-          //console.log('ffmpeg ' + args);
+          //console.log(new Date(),'ffmpeg ' + args);
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
           ffmpeg.stderr.on('data', d => null);
 
           const killFfmpeg = (reason: string) => (e?: unknown) => {
             try {
-              if (e) console.log('killFfmeg: ', reason, e);
+              if (e) console.log(new Date(),'killFfmeg: ', reason, e);
               ffmpeg?.kill('SIGTERM');
             } catch (ex) { };
             ffmpeg = undefined;
@@ -223,7 +223,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
             await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
           } catch (ex) {
-            console.warn(req.url, ex);
+            console.warn(new Date(),req.url, ex);
             throw ex;
           } finally {
             ffmpeg.stdin.end();
@@ -266,7 +266,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       res.end();
     });
   } catch (ex: any) {
-    console.warn("Request", req.url, ex);
+    console.warn(new Date(), "Request", req.url, ex);
     res.statusCode = 500;
     if (ex)
       res.write('message' in ex ? ex.message : ex.toString());
@@ -333,7 +333,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
       }
 
     } catch (e) {
-      console.warn("Failed to change quality", e);
+      console.warn(new Date(), "Failed to change quality", e);
     } finally {
       prevFrameSent = frameSent;
     }
@@ -346,7 +346,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
       frameSent = true
     }
     catch (ex) {
-      console.warn('Unable to send frame', ex);
+      console.warn(new Date(), 'Unable to send frame', ex);
     }
   };
 
@@ -503,17 +503,17 @@ async function saveTimelapse() {
       }
     }).filter(o => o && typeof o.time === 'number' && typeof o.name === 'string');
   } catch (e) {
-    console.warn("Timelapse index", e);
+    console.warn(new Date(), "Timelapse index", e);
   }
   if (timeIndex.length === 0) {
-    console.log("Timelapse index missing or unreadable");
+    console.log(new Date(), "Timelapse index missing or unreadable");
     // Check the file system for images
     const newIndex = await createStateFromFileSystem(timelapseDir);
     // We do a sync write to ensure the file can't be appended to in mid-write
     writeFileSync(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"))
     timeIndex = newIndex;
   }
-  console.log("Timelapse index length", timeIndex.length);
+  console.log(new Date(), "Timelapse index length", timeIndex.length);
   let nextTimelapse = Math.floor(Date.now() / 1000);
 
   while (true) {
@@ -540,13 +540,13 @@ async function saveTimelapse() {
       await appendFile(timelapseDir + "state.ndjson", JSON.stringify(entry) + "\n");
       timeIndex.push(entry)
     } catch (e) {
-      console.warn("Failed to take timelapse photo", e);
+      console.warn(new Date(), "Failed to take timelapse photo", e);
     }
     await sleep(nextTimelapse - Date.now() / 1000);
   }
 }
 
 createServer(handleHttpRequest).listen(PORT, async () => {
-  console.log(`Verison ${require('../package.json').version}: listening on port ${PORT}`);
+  console.log(new Date(), `Verison ${require('../package.json').version}: listening on port ${PORT}`);
   saveTimelapse();
 });
