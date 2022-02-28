@@ -40,6 +40,7 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
 let config;
+const compressing = new Map();
 const configPath = path_1.default.join(__dirname, '../config/config.json');
 try {
     config = require(configPath);
@@ -190,7 +191,9 @@ async function handleHttpRequest(req, res) {
                     const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
                     //console.log(new Date(),'ffmpeg ' + args);
                     let ffmpeg = (0, child_process_1.spawn)('ffmpeg', args.split(' '));
-                    ffmpeg.stderr.on('data', d => null);
+                    compressing.set(ffmpeg, { url: req.url || '', lastLine: '' });
+                    ffmpeg.once('close', () => { compressing.delete(ffmpeg); ffmpeg = undefined; });
+                    ffmpeg.stderr.on('data', d => compressing.get(ffmpeg).lastLine = d.toString());
                     const killFfmpeg = (reason) => (e) => {
                         try {
                             if (e)
@@ -199,14 +202,12 @@ async function handleHttpRequest(req, res) {
                         }
                         catch (ex) { }
                         ;
-                        ffmpeg = undefined;
                     };
                     // If the client dies, about ffmpeg, which will unwind sendTimelapse()
                     res.once('error', killFfmpeg("res error"));
                     //res.once('close', killFfmpeg("res close"));
                     // Pipe the output of ffmpeg to the client
                     ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
-                    //ffmpeg.once('close', killFfmpeg("ffmpeg close"));
                     try {
                         res.writeHead(200, {
                             Connection: 'close',
@@ -277,7 +278,8 @@ function sendInfo(res, moreInfo) {
         countFrames: timeIndex.length,
         startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
         config,
-        moreInfo
+        moreInfo,
+        compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`)
     }, null, 2));
     res.end();
 }

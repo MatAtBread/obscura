@@ -288,7 +288,7 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
     config,
     moreInfo,
-    compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`);
+    compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`)
   }, null, 2));
   res.end();
 }
