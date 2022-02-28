@@ -203,9 +203,8 @@ async function handleHttpRequest(req, res) {
                         catch (ex) { }
                         ;
                     };
-                    // If the client dies, about ffmpeg, which will unwind sendTimelapse()
-                    res.once('error', killFfmpeg("res error"));
-                    //res.once('close', killFfmpeg("res close"));
+                    // If the client dies, abort ffmpeg, which will unwind sendTimelapse()
+                    res.once('close', killFfmpeg("res close"));
                     // Pipe the output of ffmpeg to the client
                     ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
                     try {
