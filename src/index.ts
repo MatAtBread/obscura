@@ -32,7 +32,8 @@ let config: {
   }
 };
 
-const compressing = new Map<ChildProcessWithoutNullStreams, { url: string; lastLine: string }>();
+type Compressing = { url: string; lastLine: string, frames: number };
+const compressing = new Map<ChildProcessWithoutNullStreams, Compressing>();
 const configPath = path.join(__dirname, '../config/config.json');
 try {
   config = require(configPath);
@@ -199,13 +200,13 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
           //console.log(new Date(),'ffmpeg ' + args);
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
-          compressing.set(ffmpeg, { url: req.url || '', lastLine: '' });
+          compressing.set(ffmpeg, { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime())/1000 });
           ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
           ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
           const killFfmpeg = (reason: string) => (e?: unknown) => {
             try {
-              if (e) console.log(new Date(),'killFfmeg: ', reason, e);
+              if (e) console.log(new Date(), 'killFfmeg: ', reason, e);
               ffmpeg?.kill('SIGTERM');
             } catch (ex) { };
           };
@@ -223,7 +224,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
             await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
           } catch (ex) {
-            console.warn(new Date(),req.url, ex);
+            console.warn(new Date(), req.url, ex);
             throw ex;
           } finally {
             ffmpeg.stdin.end();
@@ -274,6 +275,15 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
+function parseFfmpegStatus(v: Compressing) {
+  const status = Object.fromEntries(v.lastLine.replace(/=\s*/g, '=').split(/\s+/).map(s => s.split('=')));
+  return { 
+    percent: Math.floor(status.frame * 100 / v.frames),
+    url: v.url, 
+    ...status 
+  }
+}
+
 function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo) {
   res.setHeader("Content-type", "application/json");
   const numFrames = Math.min(timeIndex.length, 240);
@@ -287,7 +297,7 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
     config,
     moreInfo,
-    compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`)
+    compressing: [...compressing.values()].map(parseFfmpegStatus)
   }, null, 2));
   res.end();
 }
