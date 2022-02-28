@@ -32,6 +32,7 @@ let config: {
   }
 };
 
+const compressing = new Map<ChildProcessWithoutNullStreams, { url: string; lastLine: string }>();
 const configPath = path.join(__dirname, '../config/config.json');
 try {
   config = require(configPath);
@@ -198,14 +199,15 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
           //console.log(new Date(),'ffmpeg ' + args);
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
-          ffmpeg.stderr.on('data', d => null);
+          compressing.set(ffmpeg, { url: req.url || '', lastLine: '' });
+          ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
+          ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
           const killFfmpeg = (reason: string) => (e?: unknown) => {
             try {
               if (e) console.log(new Date(),'killFfmeg: ', reason, e);
               ffmpeg?.kill('SIGTERM');
             } catch (ex) { };
-            ffmpeg = undefined;
           };
 
           // If the client dies, about ffmpeg, which will unwind sendTimelapse()
@@ -213,7 +215,6 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           //res.once('close', killFfmpeg("res close"));
           // Pipe the output of ffmpeg to the client
           ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
-          //ffmpeg.once('close', killFfmpeg("ffmpeg close"));
 
           try {
             res.writeHead(200, {
@@ -286,7 +287,8 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
     countFrames: timeIndex.length,
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
     config,
-    moreInfo
+    moreInfo,
+    compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`);
   }, null, 2));
   res.end();
 }
