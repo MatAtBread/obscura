@@ -292,6 +292,7 @@ function parseFfmpegStatus(v) {
     const status = Object.fromEntries(v.lastLine.replace(/=\s*/g, '=').split(/\s+/).map(s => s.split('=')));
     return {
         percent: Math.floor(status.frame * 100 / v.frames),
+        frames: v.frames,
         url: v.url,
         ...status
     };
