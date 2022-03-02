@@ -195,7 +195,7 @@
     speed.value = info.config.timelapse.speed / units.value;
 
     //document.querySelector('#at').firstElementChild?.remove();
-    const now = Math.floor(Date.now() / 1000);
+    const now = info.endFrame || Math.floor(Date.now() / 1000);
     slider.max = now;
     slider.min = info.startFrame;
   }

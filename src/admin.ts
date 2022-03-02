@@ -6,7 +6,7 @@ import path from 'path'
 import type { TimeIndex, TimeStamp } from './types';
 import { write } from "./helpers";
 
-export async function createStateFromFileSystem(root: string): Promise<TimeIndex[]> {
+export async function createStateFromFileSystem(root: string, useNamesForTime: boolean = true): Promise<TimeIndex[]> {
   const t: TimeIndex[] = [];
 
   // For each day
@@ -16,11 +16,13 @@ export async function createStateFromFileSystem(root: string): Promise<TimeIndex
       for (const file of await readdir(path.join(root, day))) {
         const s = await stat(path.join(root, day, file));
         if (s.isFile() && file.endsWith('.jpg')) {
-          t.push({
-            name: path.join(day, file),
-            size: s.size,
-            time: Math.floor(s.ctime.getTime() / 1000) as TimeStamp
-          })
+          const time = Math.floor((useNamesForTime ? new Date(day.replace(/_/g,"-")+"T"+file.split(".")[0].replace(/_/g,":")+"Z").getTime() : s.ctime.getTime()) / 1000) as TimeStamp;
+          if (time)
+            t.push({
+              name: path.join(day, file),
+              size: s.size,
+              time
+            })
         }
       }
     }

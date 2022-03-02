@@ -1,3 +1,4 @@
+import { platform } from 'os';
 import { EventEmitter, Writable } from 'stream';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
@@ -20,6 +21,9 @@ const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
+
+const ffmpegExecutable = platform()==="win32" ? "D:\\sm\\Downloads\\ffmpeg-2022-02-28-git-7a4840a8ca-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegCodec = platform()==="linux" ? "h264_omx" : "h264";
 
 let config: {
   version: 1,
@@ -197,23 +201,31 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const bitrate = qs.get('compress') || "2M";
           const { width, height } = cameraConfig();
           const scale = Math.max(width / 1920, height / 1080);
-          const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
+          const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
           const abort = { closed: false };
 
-          let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
+          let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn(ffmpegExecutable, args.split(' '), { shell: true });
           compressing.set(ffmpeg, { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime())/1000 });
           ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
           ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
-          const killFfmpeg = (reason: string) => (e?: unknown) => {
+          const killFfmpeg = (reason: string) => (e?: any) => {
             if (!abort.closed) {
               abort.closed = true;
               try {
-                if (e) console.log(new Date(), 'killFfmeg: ', reason, e);
+                console.log(new Date(), 'killFfmeg: ', reason, e);
                 ffmpeg?.kill('SIGTERM');
+                if (e) {
+                  res.statusCode = 500;
+                  res.end(e.message || e);
+                }
               } catch (ex) { };
             }
           };
+
+          ffmpeg.stderr.once('error', killFfmpeg("ffmpeg stderr error"))
+          ffmpeg.stdout.once('error', killFfmpeg("ffmpeg stdout error"))
+          ffmpeg.stdin.once('error', killFfmpeg("ffmpeg stdin error"))
 
           // If the client dies, abort ffmpeg, which will unwind sendTimelapse()
           res.once('close', killFfmpeg("res close"));
@@ -238,7 +250,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
             console.warn(new Date(), req.url, ex);
             throw ex;
           } finally {
-            ffmpeg.stdin.end();
+            ffmpeg?.stdin?.end();
             killFfmpeg("Complete")();
           }
         } else {
@@ -306,6 +318,7 @@ function sendInfo<MoreInfo extends {}>(res: ServerResponse, moreInfo?: MoreInfo)
     totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
     countFrames: timeIndex.length,
     startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
+    endFrame: timeIndex[timeIndex.length-1]?.time || new Date(timeIndex[timeIndex.length-1].time * 1000),
     config,
     moreInfo,
     compressing: [...compressing.values()].map(parseFfmpegStatus)

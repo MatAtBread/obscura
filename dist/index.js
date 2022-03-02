@@ -22,6 +22,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const os_1 = require("os");
 const child_process_1 = require("child_process");
 const http_1 = require("http");
 const url_1 = require("url");
@@ -39,6 +40,8 @@ const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
+const ffmpegExecutable = (0, os_1.platform)() === "win32" ? "D:\\sm\\Downloads\\ffmpeg-2022-02-28-git-7a4840a8ca-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegCodec = (0, os_1.platform)() === "linux" ? "h264_omx" : "h264";
 let config;
 const compressing = new Map();
 const configPath = path_1.default.join(__dirname, '../config/config.json');
@@ -188,40 +191,56 @@ async function handleHttpRequest(req, res) {
                     const bitrate = qs.get('compress') || "2M";
                     const { width, height } = cameraConfig();
                     const scale = Math.max(width / 1920, height / 1080);
-                    const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
-                    //console.log(new Date(),'ffmpeg ' + args);
-                    let ffmpeg = (0, child_process_1.spawn)('ffmpeg', args.split(' '));
-                    compressing.set(ffmpeg, { url: req.url || '', lastLine: '' });
+                    const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
+                    const abort = { closed: false };
+                    let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
+                    compressing.set(ffmpeg, { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / 1000 });
                     ffmpeg.once('close', () => { compressing.delete(ffmpeg); ffmpeg = undefined; });
                     ffmpeg.stderr.on('data', d => compressing.get(ffmpeg).lastLine = d.toString());
                     const killFfmpeg = (reason) => (e) => {
-                        try {
-                            if (e)
+                        if (!abort.closed) {
+                            abort.closed = true;
+                            try {
                                 console.log(new Date(), 'killFfmeg: ', reason, e);
-                            ffmpeg?.kill('SIGTERM');
+                                ffmpeg?.kill('SIGTERM');
+                                if (e) {
+                                    res.statusCode = 500;
+                                    res.end(e.message || e);
+                                }
+                            }
+                            catch (ex) { }
+                            ;
                         }
-                        catch (ex) { }
-                        ;
                     };
+                    ffmpeg.stderr.once('error', killFfmpeg("ffmpeg stderr error"));
+                    ffmpeg.stdout.once('error', killFfmpeg("ffmpeg stdout error"));
+                    ffmpeg.stdin.once('error', killFfmpeg("ffmpeg stdin error"));
                     // If the client dies, abort ffmpeg, which will unwind sendTimelapse()
                     res.once('close', killFfmpeg("res close"));
-                    // Pipe the output of ffmpeg to the client
-                    ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
+                    ffmpeg.stdout.on('data', d => {
+                        try {
+                            (0, helpers_1.write)(res, d);
+                        }
+                        catch (ex) {
+                            killFfmpeg("res write error: " + ex?.message)();
+                        }
+                    });
+                    ffmpeg.stdout.on('close', () => res.end());
                     try {
                         res.writeHead(200, {
                             Connection: 'close',
                             'Content-Type': 'video/x-matroska'
                         });
                         // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-                        await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
+                        await sendTimelapse(abort, ffmpeg.stdin, { ...opts });
                     }
                     catch (ex) {
                         console.warn(new Date(), req.url, ex);
                         throw ex;
                     }
                     finally {
-                        ffmpeg.stdin.end();
-                        //killFfmpeg("Complete")();
+                        ffmpeg?.stdin?.end();
+                        killFfmpeg("Complete")();
                     }
                 }
                 else {
@@ -265,6 +284,14 @@ async function handleHttpRequest(req, res) {
         res.end();
     }
 }
+function parseFfmpegStatus(v) {
+    const status = Object.fromEntries(v.lastLine.replace(/=\s*/g, '=').split(/\s+/).map(s => s.split('=')));
+    return {
+        percent: Math.floor(status.frame * 100 / v.frames),
+        url: v.url,
+        ...status
+    };
+}
 function sendInfo(res, moreInfo) {
     res.setHeader("Content-type", "application/json");
     const numFrames = Math.min(timeIndex.length, 240);
@@ -276,9 +303,10 @@ function sendInfo(res, moreInfo) {
         totalFrameSize: timeIndex.reduce((a, b) => a + b.size, 0),
         countFrames: timeIndex.length,
         startFrame: timeIndex[0]?.time || new Date(timeIndex[0].time * 1000),
+        endFrame: timeIndex[timeIndex.length - 1]?.time || new Date(timeIndex[timeIndex.length - 1].time * 1000),
         config,
         moreInfo,
-        compressing: [...compressing.values()].map(v => `${v.url}\t${v.lastLine}`)
+        compressing: [...compressing.values()].map(parseFfmpegStatus)
     }, null, 2));
     res.end();
 }
@@ -352,20 +380,14 @@ async function streamPreview(req, res, fps) {
 }
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(req, mjpegStream, { fps, speed, start, end }) {
-    let closed = false;
-    function close() {
-        closed = true;
-    }
-    req.once('close', close);
-    req.once('error', close);
+async function sendTimelapse(abort, mjpegStream, { fps, speed, start, end }) {
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
     else {
         const numFrames = Math.min(timeIndex.length, 240);
         const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
-        for (let tFrame = start.getTime() / 1000; !closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
+        for (let tFrame = start.getTime() / 1000; !abort.closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
             let frameIndex = (0, binary_search_1.default)(timeIndex, tFrame, (t, n) => t.time - n);
             if (frameIndex < 0)
                 frameIndex = ~frameIndex;

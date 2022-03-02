@@ -8,7 +8,7 @@ const child_process_1 = require("child_process");
 const promises_1 = require("fs/promises");
 const path_1 = __importDefault(require("path"));
 const helpers_1 = require("./helpers");
-async function createStateFromFileSystem(root) {
+async function createStateFromFileSystem(root, useNamesForTime = true) {
     const t = [];
     // For each day
     for (const day of await (0, promises_1.readdir)(root)) {
@@ -17,11 +17,13 @@ async function createStateFromFileSystem(root) {
             for (const file of await (0, promises_1.readdir)(path_1.default.join(root, day))) {
                 const s = await (0, promises_1.stat)(path_1.default.join(root, day, file));
                 if (s.isFile() && file.endsWith('.jpg')) {
-                    t.push({
-                        name: path_1.default.join(day, file),
-                        size: s.size,
-                        time: Math.floor(s.ctime.getTime() / 1000)
-                    });
+                    const time = Math.floor((useNamesForTime ? new Date(day.replace(/_/g, "-") + "T" + file.split(".")[0].replace(/_/g, ":") + "Z").getTime() : s.ctime.getTime()) / 1000);
+                    if (time)
+                        t.push({
+                            name: path_1.default.join(day, file),
+                            size: s.size,
+                            time
+                        });
                 }
             }
         }
