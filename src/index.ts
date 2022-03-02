@@ -205,7 +205,9 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const abort = { closed: false };
 
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn(ffmpegExecutable, args.split(' '), { shell: true });
-          compressing.set(ffmpeg, { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime())/1000 });
+          let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / 1000 };
+          console.log("compressionProgress", compressionProgress, opts, (opts.end.getTime() - opts.start.getTime()) / 1000);
+          compressing.set(ffmpeg, compressionProgress);
           ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
           ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
