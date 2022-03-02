@@ -198,8 +198,7 @@ async function handleHttpRequest(req, res) {
                     const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
                     const abort = { closed: false };
                     let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
-                    let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / 1000 };
-                    console.log("compressionProgress", compressionProgress, opts, (opts.end.getTime() - opts.start.getTime()) / 1000);
+                    let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
                     compressing.set(ffmpeg, compressionProgress);
                     ffmpeg.once('close', () => { compressing.delete(ffmpeg); ffmpeg = undefined; });
                     ffmpeg.stderr.on('data', d => compressing.get(ffmpeg).lastLine = d.toString());
