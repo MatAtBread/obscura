@@ -198,23 +198,34 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const { width, height } = cameraConfig();
           const scale = Math.max(width / 1920, height / 1080);
           const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec h264_omx -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
-          //console.log(new Date(),'ffmpeg ' + args);
+          const abort = { closed: false };
+
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn('ffmpeg', args.split(' '));
           compressing.set(ffmpeg, { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime())/1000 });
           ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
           ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
           const killFfmpeg = (reason: string) => (e?: unknown) => {
-            try {
-              if (e) console.log(new Date(), 'killFfmeg: ', reason, e);
-              ffmpeg?.kill('SIGTERM');
-            } catch (ex) { };
+            if (!abort.closed) {
+              abort.closed = true;
+              try {
+                if (e) console.log(new Date(), 'killFfmeg: ', reason, e);
+                ffmpeg?.kill('SIGTERM');
+              } catch (ex) { };
+            }
           };
 
           // If the client dies, abort ffmpeg, which will unwind sendTimelapse()
           res.once('close', killFfmpeg("res close"));
-          // Pipe the output of ffmpeg to the client
-          ffmpeg.stdout.pipe(res).on('error', killFfmpeg("pipe error"));
+
+          ffmpeg.stdout.on('data', d => {
+            try {
+              write(res, d)
+            } catch (ex: any) {
+              killFfmpeg("res write error: " + ex?.message)();
+            }
+          });
+          ffmpeg.stdout.on('close', () => res.end());
 
           try {
             res.writeHead(200, {
@@ -222,13 +233,13 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
               'Content-Type': 'video/x-matroska'
             });
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-            await sendTimelapse(ffmpeg, ffmpeg.stdin, { ...opts });
+            await sendTimelapse(abort, ffmpeg.stdin, { ...opts });
           } catch (ex) {
             console.warn(new Date(), req.url, ex);
             throw ex;
           } finally {
             ffmpeg.stdin.end();
-            //killFfmpeg("Complete")();
+            killFfmpeg("Complete")();
           }
         } else {
           try {
@@ -379,20 +390,14 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
 
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(req: EventEmitter, mjpegStream: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
-  let closed = false;
-  function close() {
-    closed = true;
-  }
-  req.once('close', close);
-  req.once('error', close);
+async function sendTimelapse(abort:{closed:boolean}, mjpegStream: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
   if (speed < 0) {
     throw new Error("Not yet implemented");
   } else {
     const numFrames = Math.min(timeIndex.length, 240);
     const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
 
-    for (let tFrame = start.getTime() / 1000; !closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
+    for (let tFrame = start.getTime() / 1000; !abort.closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
       let frameIndex = binarySearch(timeIndex, tFrame as TimeStamp, (t, n) => t.time - n);
       if (frameIndex < 0)
         frameIndex = ~frameIndex;
