@@ -183,8 +183,8 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       case '/timelapse/':
         const opts = {
           fps: Number(qs.get('fps') || config.camera.fps),
-          start: new Date(Number(qs.get('start') || 0)),
-          end: new Date(Number(qs.get('end') || Date.now())),
+          start: new Date(Number(qs.get('start') || timeIndex[0].time*1000)),
+          end: new Date(Number(qs.get('end') || timeIndex[timeIndex.length-1].time*1000)),
           speed: Number(qs.get('speed') || config.timelapse.speed)
         };
 

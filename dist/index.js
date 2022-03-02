@@ -1,7 +1,11 @@
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
 }) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
@@ -176,8 +180,8 @@ async function handleHttpRequest(req, res) {
             case '/timelapse/':
                 const opts = {
                     fps: Number(qs.get('fps') || config.camera.fps),
-                    start: new Date(Number(qs.get('start') || 0)),
-                    end: new Date(Number(qs.get('end') || Date.now())),
+                    start: new Date(Number(qs.get('start') || timeIndex[0].time * 1000)),
+                    end: new Date(Number(qs.get('end') || timeIndex[timeIndex.length - 1].time * 1000)),
                     speed: Number(qs.get('speed') || config.timelapse.speed)
                 };
                 if (qs.has("compress")) {
