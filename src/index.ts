@@ -548,6 +548,7 @@ async function saveTimelapse() {
   console.log(new Date(), "Timelapse index length", timeIndex.length);
   let nextTimelapse = Math.floor(Date.now() / 1000);
 
+  let failed = 0;
   while (true) {
     try {
       nextTimelapse += config.timelapse.intervalSeconds;
@@ -573,6 +574,11 @@ async function saveTimelapse() {
       timeIndex.push(entry)
     } catch (e) {
       console.warn(new Date(), "Failed to take timelapse photo", e);
+      failed += 1;
+      if (failed > 3) {
+        console.error("Too many cmaera errors");
+        process.exit(-1); // Let the OS & pm2 take the strain
+      }
     }
     await sleep(nextTimelapse - Date.now() / 1000);
   }
