@@ -48,7 +48,7 @@ const ffmpegExecutable = (0, os_1.platform)() === "win32" ? "D:\\sm\\Downloads\\
 const ffmpegCodec = (0, os_1.platform)() === "linux" ? "h264_omx" : "h264";
 let config;
 const compressing = new Map();
-const configPath = path_1.default.join(__dirname, '../config/config.json');
+const configPath = path_1.default.join(__dirname, '..', 'config', 'config.json');
 try {
     config = require(configPath);
     if (config?.version !== CONFIG_VERSION || config?.camera?.encoding !== 'JPEG') {
@@ -86,8 +86,8 @@ function cameraConfig(overrides = {}) {
     return r;
 }
 // Pre-calculated constants
-const timelapseDir = path_1.default.join(__dirname, '../www/timelapse/');
-const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '../www'), {
+const timelapseDir = path_1.default.join(__dirname, '..', 'www', 'timelapse');
+const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..', 'www'), {
     maxAge: 3600000,
     redirect: false
 });
@@ -144,7 +144,7 @@ async function handleHttpRequest(req, res) {
             case '/admin/build-state/':
                 const newIndex = await (0, admin_1.createStateFromFileSystem)(timelapseDir);
                 // We do a sync write to ensure the file can't be appended to in mid-write
-                (0, fs_1.writeFileSync)(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+                (0, fs_1.writeFileSync)(path_1.default.join(timelapseDir, "state.ndjson"), timeIndex.map(e => JSON.stringify(e)).join("\n"));
                 timeIndex = newIndex;
                 sendInfo(res);
                 return;
@@ -159,7 +159,7 @@ async function handleHttpRequest(req, res) {
                 const tNew = [];
                 for (const t of timeIndex) {
                     if (t.time < until && t.time - lastTime < interval) {
-                        removed.push(timelapseDir + t.name);
+                        removed.push(path_1.default.join(timelapseDir, t.name));
                     }
                     else {
                         tNew.push(t);
@@ -168,7 +168,7 @@ async function handleHttpRequest(req, res) {
                 }
                 timeIndex = tNew;
                 // We do a sync write to ensure the file can't be appended to in mid-write
-                (0, fs_1.writeFileSync)(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+                (0, fs_1.writeFileSync)(path_1.default.join(timelapseDir, "state.ndjson"), timeIndex.map(e => JSON.stringify(e)).join("\n"));
                 sendInfo(res, { preserved: tNew.length, removed: removed.length });
                 await Promise.all(removed.map(p => (0, promises_1.unlink)(p)));
                 return;
@@ -410,7 +410,7 @@ async function streamFrame(frame, dest) {
     await (0, helpers_1.write)(dest, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
     let file = undefined;
     try {
-        file = (0, fs_1.createReadStream)(timelapseDir + frame.name);
+        file = (0, fs_1.createReadStream)(path_1.default.join(timelapseDir, frame.name));
         for await (const chunk of file) {
             await (0, helpers_1.write)(dest, chunk);
         }
@@ -499,7 +499,7 @@ async function takePhoto(quality = PHOTO_QUALITY) {
 async function saveTimelapse() {
     // init timelapse index
     try {
-        const timelapseIndex = (0, fs_1.readFileSync)(timelapseDir + "state.ndjson").toString();
+        const timelapseIndex = (0, fs_1.readFileSync)(path_1.default.join(timelapseDir, "state.ndjson")).toString();
         timeIndex = timelapseIndex.split(/\n|\n\r|\r\n/).map(r => {
             try {
                 return JSON.parse(r);
@@ -517,7 +517,7 @@ async function saveTimelapse() {
         // Check the file system for images
         const newIndex = await (0, admin_1.createStateFromFileSystem)(timelapseDir);
         // We do a sync write to ensure the file can't be appended to in mid-write
-        (0, fs_1.writeFileSync)(timelapseDir + "state.ndjson", timeIndex.map(e => JSON.stringify(e)).join("\n"));
+        (0, fs_1.writeFileSync)(path_1.default.join(timelapseDir, "state.ndjson"), timeIndex.map(e => JSON.stringify(e)).join("\n"));
         timeIndex = newIndex;
     }
     console.log(new Date(), "Timelapse index length", timeIndex.length);
@@ -527,21 +527,21 @@ async function saveTimelapse() {
             nextTimelapse += config.timelapse.intervalSeconds;
             const photo = await takePhoto(config.timelapse.quality);
             const now = new Date();
-            const path = String(now.getUTCFullYear()) + '_'
+            const dir = String(now.getUTCFullYear()) + '_'
                 + String(now.getMonth() + 1).padStart(2, '0') + '_'
                 + String(now.getUTCDate()).padStart(2, '0');
-            await (0, promises_1.mkdir)(timelapseDir + path, { recursive: true });
-            const frameName = path + '/'
+            await (0, promises_1.mkdir)(timelapseDir + dir, { recursive: true });
+            const frameName = dir + '/'
                 + String(now.getHours()).padStart(2, '0') + '_'
                 + String(now.getMinutes()).padStart(2, '0') + '_'
                 + String(now.getSeconds()).padStart(2, '0') + '.jpg';
-            await (0, promises_1.writeFile)(timelapseDir + frameName, photo);
+            await (0, promises_1.writeFile)(path_1.default.join(timelapseDir, frameName), photo);
             const entry = {
                 name: frameName,
                 size: photo.length,
                 time: Math.floor(now.getTime() / 1000)
             };
-            await (0, promises_1.appendFile)(timelapseDir + "state.ndjson", JSON.stringify(entry) + "\n");
+            await (0, promises_1.appendFile)(path_1.default.join(timelapseDir, "state.ndjson"), JSON.stringify(entry) + "\n");
             timeIndex.push(entry);
         }
         catch (e) {
@@ -551,6 +551,6 @@ async function saveTimelapse() {
     }
 }
 (0, http_1.createServer)(handleHttpRequest).listen(PORT, async () => {
-    console.log(new Date(), `Verison ${require('../package.json').version}: listening on port ${PORT}`);
+    console.log(new Date(), `Verison ${require(path_1.default.join('..', 'package.json')).version}: listening on port ${PORT}`);
     saveTimelapse();
 });
