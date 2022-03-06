@@ -95,6 +95,12 @@ const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..
 let previewQuality = config.camera.quality; // Dynamically modified quality
 let previewFrameSize = 0;
 let timeIndex = [];
+function frameFromTime(ts) {
+    let nextFrameIndex = (0, binary_search_1.default)(timeIndex, ts, (t, n) => t.time - n);
+    if (nextFrameIndex < 0)
+        nextFrameIndex = ~nextFrameIndex;
+    return nextFrameIndex;
+}
 async function handleHttpRequest(req, res) {
     try {
         const url = new url_1.URL("http://server" + req.url);
@@ -123,9 +129,7 @@ async function handleHttpRequest(req, res) {
                 return;
             case '/at.jpg':
                 const t = qs.has('t') ? new Date(Number(qs.get('t') || 0)) : undefined;
-                let frameIndex = (0, binary_search_1.default)(timeIndex, (t ? t.getTime() / 1000 : 0), (t, n) => t.time - n);
-                if (frameIndex < 0)
-                    frameIndex = ~frameIndex;
+                let frameIndex = frameFromTime((t ? t.getTime() / 1000 : 0));
                 if (frameIndex >= timeIndex.length)
                     frameIndex = timeIndex.length - 1;
                 res.setHeader("Location", `/timelapse/${timeIndex[frameIndex].name}`);
@@ -237,7 +241,7 @@ async function handleHttpRequest(req, res) {
                             'Content-Type': 'video/x-matroska'
                         });
                         // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-                        await sendTimelapse(abort, ffmpeg.stdin, { ...opts });
+                        await sendTimelapse(abort, ffmpeg, { ...opts });
                     }
                     catch (ex) {
                         console.warn(new Date(), req.url, ex);
@@ -386,7 +390,7 @@ async function streamPreview(req, res, fps) {
 }
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort, mjpegStream, { fps, speed, start, end }) {
+async function sendTimelapse(abort, ffmpeg, { fps, speed, start, end }) {
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
@@ -394,14 +398,16 @@ async function sendTimelapse(abort, mjpegStream, { fps, speed, start, end }) {
         const numFrames = Math.min(timeIndex.length, 240);
         const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
         for (let tFrame = start.getTime() / 1000; !abort.closed && tFrame <= end.getTime() / 1000; tFrame += speed / fps) {
-            let frameIndex = (0, binary_search_1.default)(timeIndex, tFrame, (t, n) => t.time - n);
-            if (frameIndex < 0)
-                frameIndex = ~frameIndex;
+            let frameIndex = frameFromTime(tFrame);
             if (frameIndex >= timeIndex.length)
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
             if (frame.size > avgFrameSize / 2) {
-                await streamFrame(frame, mjpegStream);
+                await streamFrame(frame, ffmpeg.stdin);
+            }
+            else {
+                if (compressing.get(ffmpeg))
+                    compressing.get(ffmpeg).frames -= 1;
             }
         }
     }
@@ -432,10 +438,10 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
     else {
         const numFrames = Math.min(timeIndex.length, 240);
         const avgFrameSize = numFrames > 20 ? timeIndex.slice(-numFrames).reduce((a, t) => a + t.size, 0) / numFrames : 0;
-        let frameIndex = (0, binary_search_1.default)(timeIndex, (start.getTime() / 1000), (t, n) => t.time - n);
+        let frameIndex = frameFromTime((start.getTime() / 1000));
         if (frameIndex < 0)
             frameIndex = ~frameIndex;
-        let finalIndex = (0, binary_search_1.default)(timeIndex, (end.getTime() / 1000), (t, n) => t.time - n);
+        let finalIndex = frameFromTime((end.getTime() / 1000));
         if (finalIndex < 0)
             finalIndex = ~finalIndex;
         while (!closed) {
@@ -451,7 +457,7 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
             await streamFrame(frame, res);
             // Having written the first frame, we'll want to send another one in T+1/fps in real time.
             // which is T+speed/fps in timelapse time. 
-            let nextFrameIndex = (0, binary_search_1.default)(timeIndex, frame.time + speed / fps || 0, (t, n) => t.time - n);
+            let nextFrameIndex = frameFromTime((frame.time + speed / fps || 0));
             if (nextFrameIndex < 0)
                 nextFrameIndex = ~nextFrameIndex;
             if (nextFrameIndex === frameIndex)
@@ -531,11 +537,10 @@ async function saveTimelapse() {
             const dir = String(now.getUTCFullYear()) + '_'
                 + String(now.getMonth() + 1).padStart(2, '0') + '_'
                 + String(now.getUTCDate()).padStart(2, '0');
-            await (0, promises_1.mkdir)(timelapseDir + dir, { recursive: true });
-            const frameName = dir + '/'
-                + String(now.getHours()).padStart(2, '0') + '_'
+            await (0, promises_1.mkdir)(path_1.default.join(timelapseDir, dir), { recursive: true });
+            const frameName = path_1.default.join(dir, +String(now.getHours()).padStart(2, '0') + '_'
                 + String(now.getMinutes()).padStart(2, '0') + '_'
-                + String(now.getSeconds()).padStart(2, '0') + '.jpg';
+                + String(now.getSeconds()).padStart(2, '0') + '.jpg');
             await (0, promises_1.writeFile)(path_1.default.join(timelapseDir, frameName), photo);
             const entry = {
                 name: frameName,
@@ -549,7 +554,7 @@ async function saveTimelapse() {
             console.warn(new Date(), "Failed to take timelapse photo", e);
             failed += 1;
             if (failed > 3) {
-                console.error("Too many cmaera errors");
+                console.error(new Date(), "Too many cmaera errors");
                 process.exit(-1); // Let the OS & pm2 take the strain
             }
         }
