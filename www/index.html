@@ -158,7 +158,7 @@
   async function showProgress() {
     for (;;) {
       try {
-        await sleep(5);
+        await sleep(2);
         const info = await fetch("/info").then(resp => resp.json());
         if (info.compressing.length) {
           const smallest = Math.min(...info.compressing.map(c => c.percent));
