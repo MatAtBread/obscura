@@ -560,7 +560,7 @@ async function saveTimelapse() {
       nextTimelapse += config.timelapse.intervalSeconds;
       const photo = await takePhoto(config.timelapse.quality);
       const now = new Date();
-      const dir = String(now.getUTCFullYear()) + '_'
+      const dir = String(now.getUTCFullYear()).padStart(2, '0') + '_'
         + String(now.getMonth() + 1).padStart(2, '0') + '_'
         + String(now.getUTCDate()).padStart(2, '0');
       await mkdir(path.join(timelapseDir, dir), { recursive: true });
