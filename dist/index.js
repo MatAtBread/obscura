@@ -538,10 +538,10 @@ async function saveTimelapse() {
                 + String(now.getMonth() + 1).padStart(2, '0') + '_'
                 + String(now.getUTCDate()).padStart(2, '0');
             await (0, promises_1.mkdir)(path_1.default.join(timelapseDir, dir), { recursive: true });
-            const frameName = path_1.default.join(dir, +String(now.getHours()).padStart(2, '0') + '_'
+            const frameName = path_1.default.join(dir, String(now.getHours()).padStart(2, '0') + '_'
                 + String(now.getMinutes()).padStart(2, '0') + '_'
                 + String(now.getSeconds()).padStart(2, '0') + '.jpg');
-            console.log("w", { dir, frameName, fq: path_1.default.join(timelapseDir, frameName) });
+            //console.log("w",{ dir, frameName, fq: path.join(timelapseDir, frameName)});
             await (0, promises_1.writeFile)(path_1.default.join(timelapseDir, frameName), photo);
             const entry = {
                 name: frameName,
