@@ -541,6 +541,7 @@ async function saveTimelapse() {
             const frameName = path_1.default.join(dir, +String(now.getHours()).padStart(2, '0') + '_'
                 + String(now.getMinutes()).padStart(2, '0') + '_'
                 + String(now.getSeconds()).padStart(2, '0') + '.jpg');
+            console.log("w", { dir, frameName, fq: path_1.default.join(timelapseDir, frameName) });
             await (0, promises_1.writeFile)(path_1.default.join(timelapseDir, frameName), photo);
             const entry = {
                 name: frameName,

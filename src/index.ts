@@ -568,7 +568,7 @@ async function saveTimelapse() {
         + String(now.getHours()).padStart(2, '0') + '_'
         + String(now.getMinutes()).padStart(2, '0') + '_'
         + String(now.getSeconds()).padStart(2, '0') + '.jpg');
-
+console.log("w",{ dir, frameName, fq: path.join(timelapseDir, frameName)});
       await writeFile(path.join(timelapseDir, frameName), photo);
       const entry: TimeIndex = {
         name: frameName,
