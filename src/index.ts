@@ -204,10 +204,12 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
         switch (qs.get('night')){
           case 'true':
-            opts.night = true;
+          case '1':
+              opts.night = true;
             break;
           case 'false':
-            opts.night = false;
+          case '0':
+              opts.night = false;
             break;
           default:
             const startHour = (opts.start.getTime()/(60 * 60 * 1000) |0) % 24;
@@ -284,7 +286,23 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         } else {
           try {
             sendMJPEGHeaders(res);
-            if (!qs.get('compensateTime')) {
+            let comp:boolean = false;
+            switch (qs.get('compensateTime')) {
+            case 'true':
+            case '1':
+              comp = true;
+              break;
+            case 'false':
+            case '0':
+              comp = false;
+              break;
+            default:
+              // Use compensation if the frame rate is high (>12fps) and the speed is low (<24hrs per sec)
+              comp = opts.fps > 12 && opts.speed < 86400;
+              break;
+            }
+            
+            if (comp) {
               await streamTimelapse(req, res, opts);
             } else {
               const abort = { closed: false };
