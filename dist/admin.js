@@ -50,3 +50,4 @@ function redeploy(res) {
     p.stderr?.pipe(process.stderr);
 }
 exports.redeploy = redeploy;
+//# sourceMappingURL=admin.js.map

@@ -186,8 +186,20 @@ async function handleHttpRequest(req, res) {
                     fps: Number(qs.get('fps') || config.camera.fps),
                     start: new Date(Number(qs.get('start') || timeIndex[0].time * 1000)),
                     end: new Date(Number(qs.get('end') || timeIndex[timeIndex.length - 1].time * 1000)),
-                    speed: Number(qs.get('speed') || config.timelapse.speed)
+                    speed: Number(qs.get('speed') || config.timelapse.speed),
+                    night: false
                 };
+                switch (qs.get('night')) {
+                    case 'true':
+                        opts.night = true;
+                        break;
+                    case 'false':
+                        opts.night = false;
+                        break;
+                    default:
+                        const startHour = (opts.start.getTime() / (60 * 60 * 1000) | 0) % 24;
+                        opts.night = startHour < 8 || startHour > 20;
+                }
                 if (qs.has("compress")) {
                     // Warning: On a Pi Zero 2W, the maximum frame rate is around 5fps, even with H/W GPU support, so
                     // although it does reduce the required bandwidth (in the command below, to 2Mb/s), the frame rate
@@ -255,7 +267,15 @@ async function handleHttpRequest(req, res) {
                 else {
                     try {
                         sendMJPEGHeaders(res);
-                        await streamTimelapse(req, res, opts);
+                        if (!qs.get('compensateTime')) {
+                            await streamTimelapse(req, res, opts);
+                        }
+                        else {
+                            const abort = { closed: false };
+                            req.once('close', () => abort.closed = true);
+                            req.once('error', () => abort.closed = true);
+                            await sendTimelapse(abort, res, opts);
+                        }
                     }
                     finally {
                         res.end();
@@ -390,7 +410,7 @@ async function streamPreview(req, res, fps) {
 }
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort, ffmpeg, { fps, speed, start, end }) {
+async function sendTimelapse(abort, stream, { fps, speed, start, end, night }) {
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
@@ -402,8 +422,8 @@ async function sendTimelapse(abort, ffmpeg, { fps, speed, start, end }) {
             if (frameIndex >= timeIndex.length)
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
-            if (frame.size > avgFrameSize / 2) {
-                await streamFrame(frame, ffmpeg.stdin);
+            if (night || frame.size > avgFrameSize / 2) {
+                await streamFrame(frame, stream);
             }
             else {
                 if (compressing.get(ffmpeg))
@@ -416,6 +436,7 @@ async function streamFrame(frame, dest) {
     await (0, helpers_1.write)(dest, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
     let file = undefined;
     try {
+        console.log("streame ", frame.name);
         file = (0, fs_1.createReadStream)(path_1.default.join(timelapseDir, frame.name));
         for await (const chunk of file) {
             await (0, helpers_1.write)(dest, chunk);
@@ -428,7 +449,7 @@ async function streamFrame(frame, dest) {
 /* Stream images in real-time, which means taking account of the actual elapsed time to send an image
   so the stream, as near as possible, tracks elapsed time. This never duplicates frames - we just wait
   longer that the target frame rate if necessary to ensure the stream remains in sync */
-async function streamTimelapse(req, res, { fps, speed, start, end }) {
+async function streamTimelapse(req, res, { fps, speed, start, end, night }) {
     let closed = false;
     req.once('close', () => closed = true);
     req.once('error', () => closed = true);
@@ -446,9 +467,9 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
             finalIndex = ~finalIndex;
         while (!closed) {
             async function sendFinalFrame() {
-                if (nextFrameIndex >= timeIndex.length) {
-                    await streamFrame(timeIndex[timeIndex.length - 1], res);
-                }
+                /*if (nextFrameIndex >= timeIndex.length) {
+                  await streamFrame(timeIndex[timeIndex.length - 1], res);
+                }*/
                 res.end();
             }
             let time = (Date.now() / 1000);
@@ -466,7 +487,7 @@ async function streamTimelapse(req, res, { fps, speed, start, end }) {
             while (true) {
                 if (nextFrameIndex >= timeIndex.length || nextFrameIndex > finalIndex)
                     return sendFinalFrame();
-                if (timeIndex[nextFrameIndex].size > avgFrameSize / 2)
+                if (night || timeIndex[nextFrameIndex].size > avgFrameSize / 2)
                     break;
                 frame = timeIndex[nextFrameIndex];
                 nextFrameIndex += 1;
@@ -566,3 +587,4 @@ async function saveTimelapse() {
     console.log(new Date(), `Verison ${require(path_1.default.join('..', 'package.json')).version}: listening on port ${PORT}`);
     saveTimelapse();
 });
+//# sourceMappingURL=index.js.map
