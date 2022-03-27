@@ -297,8 +297,8 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
               comp = false;
               break;
             default:
-              // Use compensation if the frame rate is high (>12fps) and the speed is low (<24hrs per sec)
-              comp = opts.fps > 12 && opts.speed < 86400;
+              // Use compensation if the frame rate is high (>=12fps) and the speed is low (<24hrs per sec)
+              comp = opts.fps >= 12 && opts.speed < 86400;
               break;
             }
 
