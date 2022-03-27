@@ -37,7 +37,7 @@ let config: {
 };
 
 type Compressing = { url: string; lastLine: string, frames: number };
-const compressing = new Map<Writable, Compressing>();
+const compressing = new Map<ChildProcessWithoutNullStreams, Compressing>();
 const configPath = path.join(__dirname, '..','config','config.json');
 try {
   config = require(configPath);
@@ -211,10 +211,9 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn(ffmpegExecutable, args.split(' '), { shell: true });
           let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
-          const progress: Writable = ffmpeg.stdin;
-          compressing.set(progress, compressionProgress);
-          ffmpeg.once('close', () => { compressing.delete(progress); ffmpeg = undefined });
-          ffmpeg.stderr.on('data', d => compressing.get(progress)!.lastLine = d.toString());
+          compressing.set(ffmpeg, compressionProgress);
+          ffmpeg.once('close', () => { compressing.delete(ffmpeg!); ffmpeg = undefined });
+          ffmpeg.stderr.on('data', d => compressing.get(ffmpeg!)!.lastLine = d.toString());
 
           const killFfmpeg = (reason: string) => (e?: any) => {
             if (!abort.closed) {
@@ -252,7 +251,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
               'Content-Type': 'video/x-matroska'
             });
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-            await sendTimelapse(abort, progress, { ...opts });
+            await sendTimelapse(abort, ffmpeg, { ...opts });
           } catch (ex) {
             console.warn(new Date(), req.url, ex);
             throw ex;
@@ -263,9 +262,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
         } else {
           try {
             sendMJPEGHeaders(res);
-            await qs.has('compensateTime')
-              ? streamTimelapse(req, res, opts)
-              : sendTimelapse({ closed: false }, res, opts);
+            await streamTimelapse(req, res, opts);
           } finally {
             res.end();
           }
@@ -413,7 +410,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
 
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort:{closed:boolean}, stream: Writable, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
+async function sendTimelapse(abort:{closed:boolean}, ffmpeg: ChildProcessWithoutNullStreams, { fps, speed, start, end }: { fps: number; speed: number; start: Date, end: Date }) {
   if (speed < 0) {
     throw new Error("Not yet implemented");
   } else {
@@ -427,10 +424,10 @@ async function sendTimelapse(abort:{closed:boolean}, stream: Writable, { fps, sp
 
       const frame = timeIndex[frameIndex];
       if (frame.size > avgFrameSize / 2) {
-        await streamFrame(frame, stream);
+        await streamFrame(frame, ffmpeg.stdin);
       } else {
-        if (compressing.get(stream))
-          compressing.get(stream)!.frames -= 1;
+        if (compressing.get(ffmpeg))
+          compressing.get(ffmpeg)!.frames -= 1;
       }
     }
   }
