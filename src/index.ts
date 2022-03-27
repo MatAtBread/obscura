@@ -275,7 +275,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
               'Content-Type': 'video/x-matroska'
             });
             // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-            await sendTimelapse(abort, progress, { ...opts });
+            await sendTimelapse(abort, progress, { ...opts }, false);
           } catch (ex) {
             console.warn(new Date(), req.url, ex);
             throw ex;
@@ -301,14 +301,14 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
               comp = opts.fps > 12 && opts.speed < 86400;
               break;
             }
-            
+
             if (comp) {
               await streamTimelapse(req, res, opts);
             } else {
               const abort = { closed: false };
               req.once('close', () => abort.closed = true);
               req.once('error', () => abort.closed = true);            
-              await sendTimelapse(abort, res, opts);
+              await sendTimelapse(abort, res, opts, true);
             }
           } finally {
             res.end();
@@ -457,7 +457,7 @@ async function streamPreview(req: EventEmitter, res: Writable, fps: number) {
 
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort:{closed:boolean}, stream: Writable, { fps, speed, start, end, night }: TimelapseOptions) {
+async function sendTimelapse(abort:{closed:boolean}, stream: Writable, { fps, speed, start, end, night }: TimelapseOptions, realTime: boolean) {
   if (speed < 0) {
     throw new Error("Not yet implemented");
   } else {
@@ -471,7 +471,15 @@ async function sendTimelapse(abort:{closed:boolean}, stream: Writable, { fps, sp
 
       const frame = timeIndex[frameIndex];
       if (night || frame.size > avgFrameSize / 2) {
-        await streamFrame(frame, stream);
+        if (realTime) {
+          const now = Date.now();
+          await streamFrame(frame, stream);
+          const nextFrameDelay = 1000/fps - (Date.now() - now);
+          if (nextFrameDelay > 0)
+            await sleep(nextFrameDelay / 1000);
+        }
+        else
+          await streamFrame(frame, stream);
       } else {
         if (compressing.get(stream))
           compressing.get(stream)!.frames -= 1;

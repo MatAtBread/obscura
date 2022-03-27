@@ -256,7 +256,7 @@ async function handleHttpRequest(req, res) {
                             'Content-Type': 'video/x-matroska'
                         });
                         // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-                        await sendTimelapse(abort, progress, { ...opts });
+                        await sendTimelapse(abort, progress, { ...opts }, false);
                     }
                     catch (ex) {
                         console.warn(new Date(), req.url, ex);
@@ -292,7 +292,7 @@ async function handleHttpRequest(req, res) {
                             const abort = { closed: false };
                             req.once('close', () => abort.closed = true);
                             req.once('error', () => abort.closed = true);
-                            await sendTimelapse(abort, res, opts);
+                            await sendTimelapse(abort, res, opts, true);
                         }
                     }
                     finally {
@@ -428,7 +428,7 @@ async function streamPreview(req, res, fps) {
 }
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort, stream, { fps, speed, start, end, night }) {
+async function sendTimelapse(abort, stream, { fps, speed, start, end, night }, realTime) {
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
@@ -441,7 +441,15 @@ async function sendTimelapse(abort, stream, { fps, speed, start, end, night }) {
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
             if (night || frame.size > avgFrameSize / 2) {
-                await streamFrame(frame, stream);
+                if (realTime) {
+                    const now = Date.now();
+                    await streamFrame(frame, stream);
+                    const nextFrameDelay = 1000 / fps - (Date.now() - now);
+                    if (nextFrameDelay > 0)
+                        await (0, helpers_1.sleep)(nextFrameDelay / 1000);
+                }
+                else
+                    await streamFrame(frame, stream);
             }
             else {
                 if (compressing.get(stream))
