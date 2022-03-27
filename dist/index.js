@@ -215,9 +215,10 @@ async function handleHttpRequest(req, res) {
                     const abort = { closed: false };
                     let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
                     let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
-                    compressing.set(ffmpeg, compressionProgress);
-                    ffmpeg.once('close', () => { compressing.delete(ffmpeg); ffmpeg = undefined; });
-                    ffmpeg.stderr.on('data', d => compressing.get(ffmpeg).lastLine = d.toString());
+                    const progress = ffmpeg.stdin;
+                    compressing.set(progress, compressionProgress);
+                    ffmpeg.once('close', () => { compressing.delete(progress); ffmpeg = undefined; });
+                    ffmpeg.stderr.on('data', d => compressing.get(progress).lastLine = d.toString());
                     const killFfmpeg = (reason) => (e) => {
                         if (!abort.closed) {
                             abort.closed = true;
@@ -253,7 +254,7 @@ async function handleHttpRequest(req, res) {
                             'Content-Type': 'video/x-matroska'
                         });
                         // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-                        await sendTimelapse(abort, ffmpeg, { ...opts });
+                        await sendTimelapse(abort, progress, { ...opts });
                     }
                     catch (ex) {
                         console.warn(new Date(), req.url, ex);
@@ -426,8 +427,8 @@ async function sendTimelapse(abort, stream, { fps, speed, start, end, night }) {
                 await streamFrame(frame, stream);
             }
             else {
-                if (compressing.get(ffmpeg))
-                    compressing.get(ffmpeg).frames -= 1;
+                if (compressing.get(stream))
+                    compressing.get(stream).frames -= 1;
             }
         }
     }
@@ -436,7 +437,6 @@ async function streamFrame(frame, dest) {
     await (0, helpers_1.write)(dest, `--myboundary; id=${frame.time}\nContent-Type: image/jpg\nContent-length: ${frame.size}\n\n`);
     let file = undefined;
     try {
-        console.log("streame ", frame.name);
         file = (0, fs_1.createReadStream)(path_1.default.join(timelapseDir, frame.name));
         for await (const chunk of file) {
             await (0, helpers_1.write)(dest, chunk);
