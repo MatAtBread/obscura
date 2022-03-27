@@ -203,9 +203,10 @@ async function handleHttpRequest(req, res) {
                     const abort = { closed: false };
                     let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
                     let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
-                    compressing.set(ffmpeg, compressionProgress);
-                    ffmpeg.once('close', () => { compressing.delete(ffmpeg); ffmpeg = undefined; });
-                    ffmpeg.stderr.on('data', d => compressing.get(ffmpeg).lastLine = d.toString());
+                    const progress = ffmpeg.stdin;
+                    compressing.set(progress, compressionProgress);
+                    ffmpeg.once('close', () => { compressing.delete(progress); ffmpeg = undefined; });
+                    ffmpeg.stderr.on('data', d => compressing.get(progress).lastLine = d.toString());
                     const killFfmpeg = (reason) => (e) => {
                         if (!abort.closed) {
                             abort.closed = true;
@@ -241,7 +242,7 @@ async function handleHttpRequest(req, res) {
                             'Content-Type': 'video/x-matroska'
                         });
                         // Send the mjpeg stream to ffmpeg, aborting if the client request is aborted
-                        await sendTimelapse(abort, ffmpeg, { ...opts });
+                        await sendTimelapse(abort, progress, { ...opts });
                     }
                     catch (ex) {
                         console.warn(new Date(), req.url, ex);
@@ -255,7 +256,9 @@ async function handleHttpRequest(req, res) {
                 else {
                     try {
                         sendMJPEGHeaders(res);
-                        await streamTimelapse(req, res, opts);
+                        await qs.has('compensate')
+                            ? streamTimelapse(req, res, opts)
+                            : sendTimelapse({ closed: false }, res, opts);
                     }
                     finally {
                         res.end();
@@ -390,7 +393,7 @@ async function streamPreview(req, res, fps) {
 }
 /* Send a timelapse, ignoring real-time, but generating frames as near as possible to the target time. This includes
   duplicating or skipping frames if necessary to maintain the requested frame-rate */
-async function sendTimelapse(abort, ffmpeg, { fps, speed, start, end }) {
+async function sendTimelapse(abort, stream, { fps, speed, start, end }) {
     if (speed < 0) {
         throw new Error("Not yet implemented");
     }
@@ -403,11 +406,11 @@ async function sendTimelapse(abort, ffmpeg, { fps, speed, start, end }) {
                 frameIndex = timeIndex.length - 1;
             const frame = timeIndex[frameIndex];
             if (frame.size > avgFrameSize / 2) {
-                await streamFrame(frame, ffmpeg.stdin);
+                await streamFrame(frame, stream);
             }
             else {
-                if (compressing.get(ffmpeg))
-                    compressing.get(ffmpeg).frames -= 1;
+                if (compressing.get(stream))
+                    compressing.get(stream).frames -= 1;
             }
         }
     }
