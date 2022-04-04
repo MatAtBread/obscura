@@ -90,6 +90,14 @@
     text-decoration: inherit;
   }
 
+  input {
+    background: none;
+    border: none;
+    font: inherit;
+    color: white;    
+    width: 10em;
+  }
+
   .multi-range-slider {
     border: none;
     box-shadow: none;
@@ -111,7 +119,7 @@
   </div>
   <div id="more" style="display: none;">
     <div id="at" style="width: 100%; display: block; height: 0.6em;"></div>
-    <div id="when" style='text-align: center;'></div>
+    <div style='text-align: center;white-space: nowrap;'><input id="start" type="datetime-local"/> <input  type="datetime-local" id="end"/></div>
     <div>
       Speed: <input id="speed" type='number' style='width: 3em'>
       <select id="units">
@@ -220,6 +228,9 @@
     const now = info.endFrame || Math.floor(Date.now() / 1000);
     slider.max = now;
     slider.min = info.startFrame;
+
+    document.getElementById("start").onchange = function() { updatePreview(slider.value_min = this.valueAsNumber/1000) }
+    document.getElementById("end").onchange = function() { updatePreview(slider.value_max = this.valueAsNumber/1000) }
   }
 
   async function toggleMore(flag) {
@@ -227,24 +238,27 @@
     if (flag === false || !e.style.display) {
       e.style.display = "none";
       //slider.removeEventListener('slide', updatePreview);
-      slider.removeEventListener('input', updatePreview);
+      slider.removeEventListener('input', sliderChange);
     } else {
       e.style.display = "";
       await initMoreInfo();
       //slider.addEventListener('slide', updatePreview);
-      slider.addEventListener('input', updatePreview);
-      updatePreview(slider);
+      slider.addEventListener('input', sliderChange);
+      sliderChange(slider);
     }
   }
-  function updatePreview(e) {
-    const value = e[e.field];
+
+  function updatePreview(value) {
     const preview = document.getElementById("preview");
     if (value && !preview.isLoading) {
       setPreviewSrc("/at.jpg?t=" + value*1000);
     }
-    const start = new Date(e.value_min * 1000);
-    const end = new Date(e.value_max * 1000);
-    document.getElementById("when").textContent = start.toString().substring(4, 21)+"-"+end.toString().substring(4, 21);
+  }
+
+  function sliderChange(e) {
+    updatePreview(e[e.field]);
+    document.getElementById("start").value = new Date(e.value_min * 1000).toISOString().substring(0,16);
+    document.getElementById("end").value = new Date(e.value_max * 1000).toISOString().substring(0,16);
   }
 
   function setProgress(prog) {
