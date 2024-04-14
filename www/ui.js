@@ -1,4 +1,4 @@
-import { tag } from './ai-ui/esm/ai-ui.js'
+import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
 
 const root = 'http://cam:8000';
 
@@ -47,7 +47,7 @@ const Menu = div.extended({
       )
     ]
   }
-})
+});
 
 const Preview = div.extended({
   override: {
@@ -100,6 +100,15 @@ const More = div.extended({
   override: {
     style: "display: none;"
   },
+  ids:{
+    progress: ProgressIcon,
+    units: select,
+    speed: input,
+    fps: input,
+    start: input,
+    end: input
+    // slider??
+  },
   declare: {
     get timelapse() {
       return {
@@ -116,13 +125,26 @@ const More = div.extended({
     set toggle(v) {
       if (this.toggle) {
         this.style.display = "none";
-        //this.ids.slider.removeEventListener('input', sliderChange);
       } else {
         this.style.display = "";
-        this.initMoreInfo().then(_ => {
-          //this.ids.slider.addEventListener('input', sliderChange);
-          //sliderChange({});
-        })
+        this.initMoreInfo();
+      }
+    },
+    async showProgress() {
+      for (; ;) {
+        try {
+          await sleep(2);
+          const info = await fetch(root + "/info").then(resp => resp.json());
+          if (info.compressing.length) {
+            const smallest = Math.min(...info.compressing.map(c => c.percent));
+            this.ids.progress.percent = (smallest / 100);
+          } else {
+            this.ids.progress.percent = null;
+            return;
+          }
+        } catch (ex) {
+          alert(ex.message);
+        }
       }
     },
     async initMoreInfo() {
@@ -145,23 +167,24 @@ const More = div.extended({
       slider.dispatchEvent(new Event("input"));
     },
     syncDates(value_min, value_max, value) {
-      if (value !== undefined) {
-        const preview = window.app.ids.preview;
-        if (value && !preview.isLoading) {
-          preview.src = ("/at.jpg?t=" + value * 1000);
-        }  
+      try {
+        this.ids.slider.value_min = value_min;
+        this.ids.slider.value_max = value_max;
+        this.ids.start.value = new Date(value_min * 1000).toISOString().substring(0, 16);
+        this.ids.end.value = new Date(value_max * 1000).toISOString().substring(0, 16);
+        if (value !== undefined && value) {
+          this.dispatchEvent(new CustomEvent("change", { detail: { value: value * 1000 }}));
+        }
+      } catch (ex) {
+        // console.log(ex);
       }
-      this.ids.slider.value_min = value_min;
-      this.ids.slider.value_max = value_max;
-      this.ids.start.value = new Date(value_min * 1000).toISOString().substring(0, 16);
-      this.ids.end.value = new Date(value_max * 1000).toISOString().substring(0, 16);
     }
   },
   iterable: {
     changeSettings: undefined
   },
   constructed() {
-    this.when('input:#slider').consume((e) => this.syncDates(this.ids.slider.value_min, this.ids.slider.value_max, e[e.field]));
+    this.when('input:#slider').consume(e => this.syncDates(this.ids.slider.value_min, this.ids.slider.value_max, e[e.field]));
     this.when('#start').consume(_ => this.syncDates(this.ids.start.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000, this.ids.start.valueAsNumber / 1000));
     this.when('#end').consume(_ => this.syncDates(this.ids.start.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000));
 
@@ -220,7 +243,7 @@ const More = div.extended({
           onclick: (e) => { 
             const { units, speed, fps, start, end } = this.timelapse;
           
-            window.app.showProgress();
+            this.showProgress();
           
             e.currentTarget.href = root + "/timelapse/?start=" + start * 1000
               + "&end=" + end * 1000
@@ -240,6 +263,7 @@ const More = div.extended({
         this.ids.slider.value_max = this.ids.slider.max;
         this.syncDates(this.ids.slider.value_min, this.ids.slider.value_max);
       });
+      this.showProgress();
       return ch;
   }
 });
@@ -250,26 +274,6 @@ const IndexPage = div.extended({
     more: More,
     preview: Preview,
     progress: ProgressIcon
-  },
-  declare: {
-    async showProgress() {
-      for (; ;) {
-        try {
-          await sleep(2);
-          const info = await fetch(root + "/info").then(resp => resp.json());
-          if (info.compressing.length) {
-            const smallest = Math.min(...info.compressing.map(c => c.percent));
-            this.ids.progress.percent = (smallest / 100);
-          } else {
-            this.ids.progress.percent = null;
-            return;
-          }
-        } catch (ex) {
-          alert(ex.message);
-        }
-      }
-    }
-
   },
   constructed() {
     this.append(
@@ -294,7 +298,10 @@ const IndexPage = div.extended({
             }
           }
         }),
-        Preview({ id: "preview" }),
+        Preview({ 
+          id: "preview",
+          src: this.when('#more')(e => (e.target.id !== 'more' || this.ids.preview.isLoading) ? Iterators.Ignore : "/at.jpg?t=" + e.detail.value)
+         }),
         More({
           id: "more",
           toggle: this.when('click:#moreToggle')
@@ -307,11 +314,7 @@ const IndexPage = div.extended({
       document.body.classList[info.config.landscape ? 'remove' : 'add']('portrait');
       this.ids.preview.src = ('/preview/');
     });
-    this.showProgress();
   }
 });
 
-window.app = IndexPage();
-document.body.append(
-  window.app
-)
+document.body.append(IndexPage());
