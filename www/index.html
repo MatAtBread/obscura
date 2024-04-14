@@ -13,28 +13,28 @@
   }
 
   @media (max-aspect-ratio: 4/3) {
-    .landscape #preview {
+    .landscape #preview > img {
       width: 100%;
       overflow-y: scroll;
     }
   }
 
   @media (min-aspect-ratio: 4/3) {
-    .landscape #preview {
+    .landscape #preview > img {
       height: 100%;
       overflow-x: scroll;
     }
   }
 
   @media (max-aspect-ratio: 3/4) {
-    .portrait #preview {
+    .portrait #preview > img {
       width: 100%;
       overflow-y: scroll;
     }
   }
 
   @media (min-aspect-ratio: 3/4) {
-    .portrait #preview {
+    .portrait #preview > img {
       height: 100%;
       overflow-x: scroll;
     }
@@ -48,11 +48,11 @@
     width: min-content;
   }
 
-  #menu>icon {
+  #menu>.icon {
     opacity: 0.5;
   }
 
-  icon {
+  .icon {
     position: relative;
     display: inline-block;
     font-size: calc(3vw + 3vh);
@@ -105,185 +105,8 @@
 </style>
 
 <body>
-  <icon id="moreToggle" onclick="toggleMore()">&#8942;</icon>
-  <div id="menu">
-    <icon id="/preview/" onclick="setPreviewSrc(this.id)">&#128250;</icon>
-    <icon id="/lastframe/" onclick="setPreviewSrc(this.id)">&#9209;</icon>
-    <icon id="/timelapse/" onclick="showTimelapse(false)">&#9193;</icon>
-    <a href="/photo/" download="obscura.jpg">
-      <icon>&#128247;</icon>
-    </a>
-  </div>
-  <div style="height: 100%; width: 100%; text-align: center;">
-    <img id="preview" src="/lastframe">
-  </div>
-  <div id="more" style="display: none;">
-    <div id="at" style="width: 100%; display: block; height: 0.6em;"></div>
-    <div style='text-align: center;white-space: nowrap;'><input id="start" type="datetime-local"/> <input  type="datetime-local" id="end"/></div>
-    <div>
-      Speed: <input id="speed" type='number' style='width: 3em'>
-      <select id="units">
-        <option value=60>minutes</option>
-        <option value=3600>hours</option>
-        <option value=86400>days</option>
-      </select>
-      fps: <input id="fps" value="12" type='number' style='width: 3em'>
-    </div>
-    <div>
-      <icon onclick="changeSettings('rotate')">&#128260;</icon>
-      <icon onclick="changeSettings('hmirror')">&#128257;</icon>
-      <icon onclick="changeSettings('vmirror')">&#128259;</icon>
-      <icon onclick="changeSettings('landscape')">&#128256;</icon>
-      <a onclick="this.href=downloadVideo(this)" download="timelapse.mkv">
-        <icon>&#128190;<div id="progress" style="width: 100%; height: 100%; position: absolute; font-size: 50%; bottom: -20%; left: 0px;"></div></icon>
-      </a>
-      <a href="/admin/">
-        <icon>&#129520;</icon>
-      </a>
-    </div>
-  </div>
 </body>
-<script>
-  async function changeSettings(reason) {
-    const info = await fetch('/settings/?' + reason).then(r => r.json());
-    document.body.classList[info.config.landscape ? 'add' : 'remove']('landscape');
-    document.body.classList[info.config.landscape ? 'remove' : 'add']('portrait');
-    setPreviewSrc('/preview/');
-  }
-  function sleep(seconds) {
-    if (seconds > 0)
-      return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-    return Promise.resolve();
-  }
-
-  function setPreviewSrc(src) {
-    const preview = document.getElementById('preview');
-    preview.onload = preview.onerror = () => preview.isLoading = false;
-    preview.isLoading = true;
-    preview.src = src;
-  }
-
-  async function showProgress() {
-    for (;;) {
-      try {
-        await sleep(2);
-        const info = await fetch("/info").then(resp => resp.json());
-        if (info.compressing.length) {
-          const smallest = Math.min(...info.compressing.map(c => c.percent));
-          setProgress(smallest/100);
-        } else {
-          setProgress();
-          return;
-        }
-      } catch (ex) {
-        alert(ex.message);
-      }
-    }
-  }
-
-  function downloadVideo(e) {
-    const units = +document.getElementById('units').value;
-    const speed = +document.getElementById('speed').value;
-    const fps = +document.getElementById('fps').value;
-    const start = +slider.value_min;
-    const end = +slider.value_max;
-
-    showProgress();
-
-    return "/timelapse/?start=" + start * 1000
-      + "&end=" + end * 1000
-      + "&compress=12M"
-      + "&speed=" + (units * speed)
-      + "&fps=" + fps
-  }
-
-
-  async function showTimelapse(f) {
-    const units = +document.getElementById('units').value;
-    const speed = +document.getElementById('speed').value;
-    const fps = +document.getElementById('fps').value;
-    const start = +slider.value_min;
-    const end = +slider.value_max;
-    const preview = document.getElementById('preview');
-    setPreviewSrc("/timelapse/?start=" + start * 1000
-      + "&end=" + end * 1000
-      + "&speed=" + (units * speed * (f ? -1 : 1))
-      + "&fps=" + fps)
-  }
-  async function initMoreInfo() {
-    const info = await fetch("/info").then(resp => resp.json());
-    document.body.classList[info.config.landscape ? 'add' : 'remove']('landscape');
-    document.body.classList[info.config.landscape ? 'remove' : 'add']('portrait');
-    const units = document.getElementById('units');
-    const speed = document.getElementById('speed');
-    if (info.config.timelapse.speed < 3600)
-      units.value = 60;
-    else if (info.config.timelapse.speed < 86400)
-      units.value = 3600;
-    else
-      units.value = 86400;
-    speed.value = info.config.timelapse.speed / units.value;
-
-    //document.querySelector('#at').firstElementChild?.remove();
-    const now = info.endFrame || Math.floor(Date.now() / 1000);
-    slider.max = now;
-    slider.min = info.startFrame;
-
-    document.getElementById("start").onchange = function() { updatePreview(slider.value_min = this.valueAsNumber/1000) }
-    document.getElementById("end").onchange = function() { updatePreview(slider.value_max = this.valueAsNumber/1000) }
-  }
-
-  async function toggleMore(flag) {
-    const e = document.getElementById("more");
-    if (flag === false || !e.style.display) {
-      e.style.display = "none";
-      //slider.removeEventListener('slide', updatePreview);
-      slider.removeEventListener('input', sliderChange);
-    } else {
-      e.style.display = "";
-      await initMoreInfo();
-      //slider.addEventListener('slide', updatePreview);
-      slider.addEventListener('input', sliderChange);
-      sliderChange(slider);
-    }
-  }
-
-  function updatePreview(value) {
-    const preview = document.getElementById("preview");
-    if (value && !preview.isLoading) {
-      setPreviewSrc("/at.jpg?t=" + value*1000);
-    }
-  }
-
-  function sliderChange(e) {
-    updatePreview(e[e.field]);
-    document.getElementById("start").value = new Date(e.value_min * 1000).toISOString().substring(0,16);
-    document.getElementById("end").value = new Date(e.value_max * 1000).toISOString().substring(0,16);
-  }
-
-  function setProgress(prog) {
-    const svg = document.querySelector('#progress');
-    if (prog === undefined)
-      svg.innerHTML = '';
-    else
-      svg.innerHTML = `<svg id="svg" viewbox="0 0 100 100" fill="#fff">
-        <circle cx="50" cy="50" r="45" fill="rgb(0,0,0,0.5)"/>
-        <path fill="none" stroke-linecap="round" stroke-width="5" stroke="#3f3" stroke-dasharray="${prog * 250.2},250.2" d="M50 10 a 40 40 0 0 1 0 80 a 40 40 0 0 1 0 -80"/>
-        <text x="50" y="50" text-anchor="middle" dy="7">${Math.floor(prog * 100)}%</text>
-      </svg>`;
-    return svg;
-  }
-
-  const slider = new MultiRangeSlider({
-    container: document.querySelector('#at'),
-    id: 'range',
-    showRuler: false,
-    showValue: false,
-    showLabel: false,
-    step: 60
-  });
-  initMoreInfo().then(() => slider.value_max = slider.max);
-  showProgress();
+<script src="ui.js" type="module">
 </script>
 
 </html>

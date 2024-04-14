@@ -69,8 +69,8 @@ catch (ex) {
             mirror: pi_camera_native_ts_1.Mirror.NONE
         },
         timelapse: {
-            quality: DEFAULT_QUALITY,
-            speed: 14400,
+            quality: DEFAULT_QUALITY, // Quality of timelapse images
+            speed: 14400, // Default: 4 hours -> 1 second
             intervalSeconds: 600 // Record one frame every 5 minutes (value in seconds)  
         }
     };
