@@ -50,8 +50,9 @@ const Menu = div.extended({
 });
 
 const Preview = div.extended({
+  styles:'.Preview { height: 100%; width: 100%; text-align: center; }',
   override: {
-    style: "height: 100%; width: 100%; text-align: center;"
+    className: 'Preview'
   },
   declare: {
     isLoading: false,
