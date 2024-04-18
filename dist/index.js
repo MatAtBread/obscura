@@ -44,8 +44,9 @@ const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
-const ffmpegExecutable = (0, os_1.platform)() === "win32" ? "D:\\sm\\Downloads\\ffmpeg-2022-02-28-git-7a4840a8ca-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegExecutable = (0, os_1.platform)() === "win32" ? "C:\\Users\\matthew\\Downloads\\ffmpeg-7.0-essentials_build\\ffmpeg-7.0-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
 const ffmpegCodec = (0, os_1.platform)() === "linux" ? "h264_omx" : "h264";
+const platformArgs = (0, os_1.platform)() === "linux" ? "-zerocopy 1" : "";
 let config;
 const compressing = new Map();
 const configPath = path_1.default.join(__dirname, '..', 'config', 'config.json');
@@ -213,14 +214,15 @@ async function handleHttpRequest(req, res) {
                     const bitrate = qs.get('compress') || "2M";
                     const { width, height } = cameraConfig();
                     const scale = Math.max(width / 1920, height / 1080);
-                    const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
+                    const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} ${platformArgs} -r ${opts.fps} -`;
                     const abort = { closed: false };
+                    console.log("spawn ", ffmpegExecutable, args);
                     let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
                     let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
                     const progress = ffmpeg.stdin;
                     compressing.set(progress, compressionProgress);
                     ffmpeg.once('close', () => { compressing.delete(progress); ffmpeg = undefined; });
-                    ffmpeg.stderr.on('data', d => compressing.get(progress).lastLine = d.toString());
+                    ffmpeg.stderr.on('data', d => console.log("progress", compressing.get(progress).lastLine = d.toString()));
                     const killFfmpeg = (reason) => (e) => {
                         if (!abort.closed) {
                             abort.closed = true;
