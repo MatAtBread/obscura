@@ -216,13 +216,12 @@ async function handleHttpRequest(req, res) {
                     const scale = Math.max(width / 1920, height / 1080);
                     const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} ${platformArgs} -r ${opts.fps} -`;
                     const abort = { closed: false };
-                    console.log("spawn ", ffmpegExecutable, args);
                     let ffmpeg = (0, child_process_1.spawn)(ffmpegExecutable, args.split(' '), { shell: true });
                     let compressionProgress = { url: req.url || '', lastLine: '', frames: opts.fps * (opts.end.getTime() - opts.start.getTime()) / (1000 * opts.speed) };
                     const progress = ffmpeg.stdin;
                     compressing.set(progress, compressionProgress);
                     ffmpeg.once('close', () => { compressing.delete(progress); ffmpeg = undefined; });
-                    ffmpeg.stderr.on('data', d => console.log("progress", compressing.get(progress).lastLine = d.toString()));
+                    ffmpeg.stderr.on('data', d => compressing.get(progress).lastLine = d.toString());
                     const killFfmpeg = (reason) => (e) => {
                         if (!abort.closed) {
                             abort.closed = true;
