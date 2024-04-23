@@ -91,6 +91,10 @@ const wwwStatic = serveStatic(path.join(__dirname, '..','www'), {
   maxAge: 3600000,
   redirect: false
 });
+const aiuiStatic = serveStatic(path.join(__dirname, '..','node_modules','@matatbread'), {
+  maxAge: 3600000,
+  redirect: false
+});
 
 // Other singleton variables
 let previewQuality = config.camera.quality;  // Dynamically modified quality
@@ -337,6 +341,15 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
 
     if (req.url.endsWith('/'))
       req.url += "index.html";
+
+    if (req.url.startsWith('/ai-ui')) {
+      aiuiStatic(req,res,() => {
+        res.statusCode = 404;
+        res.write("Not found: " + req.url);
+        res.end();
+      });
+      return;
+    }
 
     wwwStatic(req, res, () => {
       res.statusCode = 404;
