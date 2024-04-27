@@ -22,7 +22,7 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
 
-const ffmpegExecutable = platform()==="win32" ? "C:\\Users\\matthew\\Downloads\\ffmpeg-7.0-essentials_build\\ffmpeg-7.0-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegExecutable = platform()==="win32" ? path.join(__dirname,"..","binaries","ffmpeg.exe") : "ffmpeg";
 const ffmpegCodec = platform()==="linux" ? "h264_omx" : "h264";
 const platformArgs = platform()==="linux" ? "-zerocopy 1" : "";
 
