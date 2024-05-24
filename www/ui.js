@@ -1,6 +1,8 @@
 import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
 
-const root = 'http://cam:8000';
+//const root = 'http://cam:8000';
+//const root = 'http://montferrier.ddns.net:8000';
+const root = '.';
 
 function sleep(seconds) {
   if (seconds > 0)

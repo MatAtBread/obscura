@@ -22,8 +22,9 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
 
-const ffmpegExecutable = platform()==="win32" ? "D:\\sm\\Downloads\\ffmpeg-2022-02-28-git-7a4840a8ca-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegExecutable = platform()==="win32" ? "C:\\Users\\matthew\\Downloads\\ffmpeg-7.0-essentials_build\\ffmpeg-7.0-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
 const ffmpegCodec = platform()==="linux" ? "h264_omx" : "h264";
+const platformArgs = platform()==="linux" ? "-zerocopy 1" : "";
 
 interface TimelapseOptions {
   fps: number;
@@ -229,7 +230,7 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
           const bitrate = qs.get('compress') || "2M";
           const { width, height } = cameraConfig();
           const scale = Math.max(width / 1920, height / 1080);
-          const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} -zerocopy 1 -r ${opts.fps} -`;
+          const args = `-f mjpeg -r ${opts.fps} -i - -f matroska -vf scale=${width / scale}:${height / scale} -vcodec ${ffmpegCodec} -b:v ${bitrate} ${platformArgs} -r ${opts.fps} -`;
           const abort = { closed: false };
 
           let ffmpeg: ChildProcessWithoutNullStreams | undefined = spawn(ffmpegExecutable, args.split(' '), { shell: true });
