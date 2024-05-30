@@ -22,7 +22,7 @@ const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
 
-const ffmpegExecutable = platform()==="win32" ? "C:\\Users\\matthew\\Downloads\\ffmpeg-7.0-essentials_build\\ffmpeg-7.0-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegExecutable = platform()==="win32" ? path.join(__dirname,"..","binaries","ffmpeg.exe") : "ffmpeg";
 const ffmpegCodec = platform()==="linux" ? "h264_omx" : "h264";
 const platformArgs = platform()==="linux" ? "-zerocopy 1" : "";
 
@@ -88,6 +88,10 @@ function cameraConfig(overrides: Partial<CameraOptions> = {}) {
 // Pre-calculated constants
 const timelapseDir = path.join(__dirname, '..','www','timelapse');
 const wwwStatic = serveStatic(path.join(__dirname, '..','www'), {
+  maxAge: 3600000,
+  redirect: false
+});
+const nodeModules = serveStatic(path.join(__dirname, '..','node_modules'), {
   maxAge: 3600000,
   redirect: false
 });
@@ -339,9 +343,11 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
       req.url += "index.html";
 
     wwwStatic(req, res, () => {
-      res.statusCode = 404;
-      res.write("Not found: " + req.url);
-      res.end();
+      nodeModules(req,res,() => {
+        res.statusCode = 404;
+        res.write("Not found: " + req.url);
+        res.end();
+      });
     });
   } catch (ex: any) {
     console.warn(new Date(), "Request", req.url, ex);

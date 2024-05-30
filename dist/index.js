@@ -44,7 +44,7 @@ const DEFAULT_QUALITY = 12;
 const MINIMUM_QUALITY = 5;
 const PORT = 8000;
 const CONFIG_VERSION = 1;
-const ffmpegExecutable = (0, os_1.platform)() === "win32" ? "C:\\Users\\matthew\\Downloads\\ffmpeg-7.0-essentials_build\\ffmpeg-7.0-essentials_build\\bin\\ffmpeg.exe" : "ffmpeg";
+const ffmpegExecutable = (0, os_1.platform)() === "win32" ? path_1.default.join(__dirname, "..", "binaries", "ffmpeg.exe") : "ffmpeg";
 const ffmpegCodec = (0, os_1.platform)() === "linux" ? "h264_omx" : "h264";
 const platformArgs = (0, os_1.platform)() === "linux" ? "-zerocopy 1" : "";
 let config;
@@ -89,6 +89,10 @@ function cameraConfig(overrides = {}) {
 // Pre-calculated constants
 const timelapseDir = path_1.default.join(__dirname, '..', 'www', 'timelapse');
 const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..', 'www'), {
+    maxAge: 3600000,
+    redirect: false
+});
+const nodeModules = (0, serve_static_1.default)(path_1.default.join(__dirname, '..', 'node_modules'), {
     maxAge: 3600000,
     redirect: false
 });
@@ -319,9 +323,11 @@ async function handleHttpRequest(req, res) {
         if (req.url.endsWith('/'))
             req.url += "index.html";
         wwwStatic(req, res, () => {
-            res.statusCode = 404;
-            res.write("Not found: " + req.url);
-            res.end();
+            nodeModules(req, res, () => {
+                res.statusCode = 404;
+                res.write("Not found: " + req.url);
+                res.end();
+            });
         });
     }
     catch (ex) {
