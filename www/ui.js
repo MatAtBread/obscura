@@ -1,16 +1,16 @@
-import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
+import { tag, Iterators } from './@matatbread/ai-ui/esm/ai-ui.js';
 
-const root = 'http://cam:8000';
+const { div, a, img, input, select, option } = tag();
+
+//const root = 'http://cam:8000';
 //const root = 'http://montferrier.ddns.net:8000';
-//const root = '.';
+const root = '.';
 
 function sleep(seconds) {
   if (seconds > 0)
     return new Promise(resolve => setTimeout(resolve, seconds * 1000));
   return Promise.resolve();
 }
-
-const { div, a, img, input, select, option } = tag();
 
 const Slider = div.extended({
   constructed(){
@@ -33,15 +33,9 @@ const icon = div.extended({
 const Menu = div.extended({
   constructed() {
     return [
-      icon({
-        id: "/preview/",
-      }, '📺'),
-      icon({
-        id: "/lastframe/",
-      }, '⏹'),
-      icon({
-        id: "/timelapse/",
-      }, '⏩'),
+      icon({ id: "/preview/" }, '📺'),
+      icon({ id: "/lastframe/" }, '⏹️'),
+      icon({ id: "/timelapse/" }, '⏩'),
       a({
         href: root + "/photo/",
         download: "obscura.jpg"

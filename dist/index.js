@@ -92,7 +92,7 @@ const wwwStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..
     maxAge: 3600000,
     redirect: false
 });
-const aiuiStatic = (0, serve_static_1.default)(path_1.default.join(__dirname, '..', 'node_modules', '@matatbread'), {
+const nodeModules = (0, serve_static_1.default)(path_1.default.join(__dirname, '..', 'node_modules'), {
     maxAge: 3600000,
     redirect: false
 });
@@ -322,18 +322,12 @@ async function handleHttpRequest(req, res) {
             throw new Error('Not found');
         if (req.url.endsWith('/'))
             req.url += "index.html";
-        if (req.url.startsWith('/ai-ui')) {
-            aiuiStatic(req, res, () => {
+        wwwStatic(req, res, () => {
+            nodeModules(req, res, () => {
                 res.statusCode = 404;
                 res.write("Not found: " + req.url);
                 res.end();
             });
-            return;
-        }
-        wwwStatic(req, res, () => {
-            res.statusCode = 404;
-            res.write("Not found: " + req.url);
-            res.end();
         });
     }
     catch (ex) {
