@@ -1,8 +1,19 @@
-import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
+/**
+ * @typedef { import("../node_modules/@matatbread/ai-ui").Iterators } Iterators
+ * @typedef { import("../node_modules/@matatbread/ai-ui").tag } tag
+ */
+import { tag, Iterators } from './@matatbread/ai-ui/esm/ai-ui.js';
+/**
+ * @typedef { import("../node_modules/htm/mini").htm } htm
+ */
+import htm from './htm/dist/htm.mjs';
 
-//const root = 'http://cam:8000';
+const { div, input, select, createElement } = tag();
+const html = htm.bind(createElement);
+
+const root = 'http://cam:8000';
 //const root = 'http://montferrier.ddns.net:8000';
-const root = '.';
+//const root = '.';
 
 function sleep(seconds) {
   if (seconds > 0)
@@ -10,18 +21,14 @@ function sleep(seconds) {
   return Promise.resolve();
 }
 
-const { div, a, img, input, select, option } = tag();
-
 const Slider = div.extended({
-  constructed(){
-    return new MultiRangeSlider({
+  constructed:() => new MultiRangeSlider({
       id: 'slider',
       showRuler: false,
       showValue: false,
       showLabel: false,
       step: 60
-    });
-  }
+    })
 });
 
 const icon = div.extended({
@@ -31,24 +38,13 @@ const icon = div.extended({
 });
 
 const Menu = div.extended({
-  constructed() {
-    return [
-      icon({
-        id: "/preview/",
-      }, '📺'),
-      icon({
-        id: "/lastframe/",
-      }, '⏹'),
-      icon({
-        id: "/timelapse/",
-      }, '⏩'),
-      a({
-        href: root + "/photo/",
-        download: "obscura.jpg"
-      }, icon('📷')
-      )
-    ]
-  }
+  constructed:() => html`
+    <${icon} id="/preview/" >📺</${icon}>
+    <${icon} id="/lastframe/">⏹️</${icon}>
+    <${icon} id="/timelapse/">⏩</${icon}>
+    <a href=${root + "/photo/"} download="obscura.jpg">
+      <${icon}>📷</${icon}>
+    </a>`  
 });
 
 const Preview = div.extended({
@@ -65,12 +61,10 @@ const Preview = div.extended({
       previewImg.src = root + '' + src;
     }
   },
-  constructed() {
-    return img({
-      src: root + "/lastframe/"
-    })
-  }
-})
+  constructed:() => html`
+    <img src=${root + "/lastframe/"} />
+  `
+});
 
 const ProgressIcon = icon.extended({
   ids: {
@@ -89,14 +83,9 @@ const ProgressIcon = icon.extended({
           </svg>`;
     }
   },
-  constructed() {
-    return [
-      '💾',
-      div({
-        style: "width: 100%; height: 100%; position: absolute; font-size: 50%; bottom: -20%; left: 0px;"
-      })
-    ]
-  }
+  constructed:() => html`
+    💾<div style="width: 100%; height: 100%; position: absolute; font-size: 50%; bottom: -20%; left: 0px;"></div>
+  `
 });
 
 const More = div.extended({
@@ -191,83 +180,59 @@ const More = div.extended({
     this.when('#start').consume(_ => this.syncDates(this.ids.start.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000, this.ids.start.valueAsNumber / 1000));
     this.when('#end').consume(_ => this.syncDates(this.ids.start.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000, this.ids.end.valueAsNumber / 1000));
 
-    const ch = [
-      Slider({
-        style: "width: 100%; display: block; height: 0.6em;"
-      }),
-      div({ style: "text-align: center;white-space: nowrap;" },
-        input({
-          id: "start",
-          type: "datetime-local"
-        }
-        ),
-        input({
-          type: "datetime-local",
-          id: "end"
-        }
-        )
-      ),
-      div(
-        'Speed: ',
-        input({
-          id: "speed",
-          type: "number",
-          style: "width: 3em"
-        }
-        ),
-        select({ id: "units" },
-          option({ value: "60" }, 'minutes'),
-          option({ value: "3600" }, 'hours'),
-          option({ value: "86400" }, 'days')
-        ),
-        'fps: ',
-        input({
-          id: "fps",
-          value: "12",
-          type: "number",
-          style: "width: 3em"
-        }
-        )
-      ),
-      div(
-        icon({ onclick: () => this.changeSettings = ('rotate') },
-          '🔄'
-        ),
-        icon({ onclick: () => this.changeSettings = ('hmirror') },
-          '🔁'
-        ),
-        icon({ onclick: () => this.changeSettings = ('vmirror') },
-          '🔃'
-        ),
-        icon({ onclick: () => this.changeSettings = ('landscape') },
-          '🔀'
-        ),
-        a({
-          onclick: (e) => { 
-            const { units, speed, fps, start, end } = this.timelapse;
-          
-            this.showProgress();
-          
-            e.currentTarget.href = root + "/timelapse/?start=" + start * 1000
-              + "&end=" + end * 1000
-              + "&compress=12M"
-              + "&speed=" + (units * speed)
-              + "&fps=" + fps
-          },
-          download: "timelapse.mkv"
-        },
-          ProgressIcon({ id: 'progress' })
-        ),
-        a({ href: "/admin/" },
-          icon('🧰')
-        )
-      )];
-      this.initMoreInfo().then(() => { 
-        this.ids.slider.value_max = this.ids.slider.max;
-        this.syncDates(this.ids.slider.value_min, this.ids.slider.value_max);
-      });
-      this.showProgress();
-      return ch;
+    const ch = html`
+      <${Slider} style="width: 100%; display: block; height: 0.6em;" />
+      <div style="text-align: center;white-space: nowrap;">
+        <input id="start" type="datetime-local" />
+        <input id="end" type="datetime-local" />
+      </div>
+      <div>
+        Speed:
+        <input id="speed" type="number" style="width: 3em" />
+        <select id="units">
+          <option value="60">minutes</option>
+          <option value="3600">hours</option>
+          <option value="86400">days</option>
+        </select>
+        fps: 
+        <input
+          id="fps"
+          value="12"
+          type="number"
+          style="width: 3em"
+        />
+      </div>
+      <div>
+      <${icon} onclick=${() => this.changeSettings = ('rotate')}>🔄</${icon}>
+      <${icon} onclick=${() => this.changeSettings = ('hmirror')}>🔁</${icon}>
+      <${icon} onclick=${() => this.changeSettings = ('vmirror')}>🔃</${icon}>
+      <${icon} onclick=${() => this.changeSettings = ('landscape')}>🔀</${icon}>
+        <a
+          onclick=${(e) => {
+        const { units, speed, fps, start, end } = this.timelapse;
+
+        this.showProgress();
+
+        e.currentTarget.href = root + "/timelapse/?start=" + start * 1000
+          + "&end=" + end * 1000
+          + "&compress=12M"
+          + "&speed=" + (units * speed)
+          + "&fps=" + fps
+      }},
+          download="timelapse.mkv"
+        >
+          <${ProgressIcon} id=progress />
+        </a>
+        <a href="/admin/">
+          <${icon}>🧰</${icon}>
+        </a>
+      </div>`;
+    this.initMoreInfo().then(() => { 
+      this.ids.slider.value_max = this.ids.slider.max;
+      this.syncDates(this.ids.slider.value_min, this.ids.slider.value_max);
+    });
+    this.showProgress();
+    return ch;
   }
 });
 
@@ -279,38 +244,37 @@ const IndexPage = div.extended({
     progress: ProgressIcon
   },
   constructed() {
-    this.append(
-      ...tag.nodes(
-        icon({ id: "moreToggle" }, '⋮'),
-        Menu({
-          id: "menu",
-          onclick: (e) => {
-            switch (e.target.id) {
-              case "/preview/":
-              case "/lastframe/":
-                this.ids.preview.src = (e.target.id)
-                break;
+    this.append(...html`
+      <${icon} id="moreToggle">⋮</${icon}>
+      <${Menu}
+        id="menu"
+        onclick=${(e) => {
+          switch (e.target.id) {
+            case "/preview/":
+            case "/lastframe/":
+              this.ids.preview.src = (e.target.id)
+              break;
 
-              case "/timelapse/":
-                const { units, speed, fps, start, end } = this.ids.more.timelapse;
-                this.ids.preview.src = ("/timelapse/?start=" + start * 1000
-                  + "&end=" + end * 1000
-                  + "&speed=" + (units * speed /* * (f ? -1 : 1)*/)
-                  + "&fps=" + fps);
-                break;
-            }
+            case "/timelapse/":
+              const { units, speed, fps, start, end } = this.ids.more.timelapse;
+              this.ids.preview.src = ("/timelapse/?start=" + start * 1000
+                + "&end=" + end * 1000
+                + "&speed=" + (units * speed /* * (f ? -1 : 1)*/)
+                + "&fps=" + fps);
+              break;
           }
-        }),
-        Preview({ 
-          id: "preview",
-          src: this.when('#more')(e => (e.target.id !== 'more' || this.ids.preview.isLoading) ? Iterators.Ignore : "/at.jpg?t=" + e.detail.value)
-         }),
-        More({
-          id: "more",
-          toggle: this.when('click:#moreToggle')
-        })
-      )
+        }
+      } />
+      <${Preview}
+        id="preview"
+        src=${this.when('#more')(e => (e.target.id !== 'more' || this.ids.preview.isLoading) ? Iterators.Ignore : "/at.jpg?t=" + e.detail.value)}
+      />
+      <${More}
+        id="more"
+        toggle=${this.when('click:#moreToggle')}
+      />`
     );
+
     this.ids.more.changeSettings.consume(async reason => {
       const info = await fetch(root + '/settings/?' + reason).then(r => r.json());
       document.body.classList[info.config.landscape ? 'add' : 'remove']('landscape');

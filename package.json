@@ -14,8 +14,9 @@
     "pi-camera-native-ts": "^0.0.9"
   },
   "dependencies": {
-    "@matatbread/ai-ui": "^0.12.1",
+    "@matatbread/ai-ui": "^0.13.0",
     "binary-search": "^1.3.6",
+    "htm": "^3.1.1",
     "serve-static": "^1.14.2"
   },
   "devDependencies": {
