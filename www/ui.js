@@ -1,8 +1,8 @@
 import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
 
-//const root = 'http://cam:8000';
+const root = 'http://cam:8000';
 //const root = 'http://montferrier.ddns.net:8000';
-const root = '.';
+//const root = '.';
 
 function sleep(seconds) {
   if (seconds > 0)
@@ -280,36 +280,34 @@ const IndexPage = div.extended({
   },
   constructed() {
     this.append(
-      ...tag.nodes(
-        icon({ id: "moreToggle" }, '⋮'),
-        Menu({
-          id: "menu",
-          onclick: (e) => {
-            switch (e.target.id) {
-              case "/preview/":
-              case "/lastframe/":
-                this.ids.preview.src = (e.target.id)
-                break;
+      icon({ id: "moreToggle" }, '⋮'),
+      Menu({
+        id: "menu",
+        onclick: (e) => {
+          switch (e.target.id) {
+            case "/preview/":
+            case "/lastframe/":
+              this.ids.preview.src = (e.target.id)
+              break;
 
-              case "/timelapse/":
-                const { units, speed, fps, start, end } = this.ids.more.timelapse;
-                this.ids.preview.src = ("/timelapse/?start=" + start * 1000
-                  + "&end=" + end * 1000
-                  + "&speed=" + (units * speed /* * (f ? -1 : 1)*/)
-                  + "&fps=" + fps);
-                break;
-            }
+            case "/timelapse/":
+              const { units, speed, fps, start, end } = this.ids.more.timelapse;
+              this.ids.preview.src = ("/timelapse/?start=" + start * 1000
+                + "&end=" + end * 1000
+                + "&speed=" + (units * speed /* * (f ? -1 : 1)*/)
+                + "&fps=" + fps);
+              break;
           }
-        }),
-        Preview({ 
-          id: "preview",
-          src: this.when('#more')(e => (e.target.id !== 'more' || this.ids.preview.isLoading) ? Iterators.Ignore : "/at.jpg?t=" + e.detail.value)
-         }),
-        More({
-          id: "more",
-          toggle: this.when('click:#moreToggle')
-        })
-      )
+        }
+      }),
+      Preview({ 
+        id: "preview",
+        src: this.when('#more')(e => (e.target.id !== 'more' || this.ids.preview.isLoading) ? Iterators.Ignore : "/at.jpg?t=" + e.detail.value)
+      }),
+      More({
+        id: "more",
+        toggle: this.when('click:#moreToggle')
+      })
     );
     this.ids.more.changeSettings.consume(async reason => {
       const info = await fetch(root + '/settings/?' + reason).then(r => r.json());
