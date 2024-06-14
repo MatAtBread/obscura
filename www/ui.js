@@ -1,4 +1,4 @@
-import { tag, Iterators } from './ai-ui/esm/ai-ui.js'
+import { tag, Iterators } from './ai-ui/dist/ai-ui.mjs'
 
 //const root = 'http://cam:8000';
 //const root = 'http://montferrier.ddns.net:8000';
