@@ -91,7 +91,7 @@ const wwwStatic = serveStatic(path.join(__dirname, '..','www'), {
   maxAge: 3600000,
   redirect: false
 });
-const aiuiStatic = serveStatic(path.join(__dirname, '..','node_modules','@matatbread'), {
+const nodeModules = serveStatic(path.join(__dirname, '..','node_modules'), {
   maxAge: 3600000,
   redirect: false
 });
@@ -342,19 +342,12 @@ async function handleHttpRequest(req: IncomingMessage, res: ServerResponse) {
     if (req.url.endsWith('/'))
       req.url += "index.html";
 
-    if (req.url.startsWith('/ai-ui')) {
-      aiuiStatic(req,res,() => {
+    wwwStatic(req, res, () => {
+      nodeModules(req,res,() => {
         res.statusCode = 404;
         res.write("Not found: " + req.url);
         res.end();
       });
-      return;
-    }
-
-    wwwStatic(req, res, () => {
-      res.statusCode = 404;
-      res.write("Not found: " + req.url);
-      res.end();
     });
   } catch (ex: any) {
     console.warn(new Date(), "Request", req.url, ex);
