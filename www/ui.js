@@ -1,9 +1,10 @@
-import { tag, Iterators } from './ai-ui/dist/ai-ui.mjs'
-const { div, a, img, input, select, option } = tag();
+import { tag, Iterators } from './@matatbread/ai-ui/dist/ai-ui.mjs';
 
 //const root = 'http://cam:8000';
 //const root = 'http://montferrier.ddns.net:8000';
 const root = '.';
+
+const { div, a, img, input, select, option } = tag();
 
 function sleep(seconds) {
   if (seconds > 0)
