@@ -653,6 +653,6 @@ async function saveTimelapse() {
 }
 
 createServer(handleHttpRequest).listen(PORT, async () => {
-  console.log(new Date(), `Verison ${require(path.join('..','package.json')).version}: listening on port ${PORT}`);
+  console.log(new Date(), `Verison ${require(path.join('..','package.json')).version}: listening on http://localhost:${PORT}`);
   saveTimelapse();
 });
